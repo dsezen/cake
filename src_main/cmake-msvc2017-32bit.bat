@@ -5,7 +5,7 @@ REM -----------------------------------
 REM BULLET 3
 REM -----------------------------------
 cd bullet3
-cmake -DBUILD_PYBULLET=ON -DUSE_DOUBLE_PRECISION=ON -DCMAKE_BUILD_TYPE=Release -DPYTHON_INCLUDE_DIR="C:\Python\Python36\include" -DPYTHON_LIBRARY="C:\Python\Python36\libs\python35.lib" -DPYTHON_DEBUG_LIBRARY="C:\Python\Python36\libs\python35_d.lib" -G "Visual Studio 15" .
+cmake -DBUILD_PYBULLET=ON -DUSE_DOUBLE_PRECISION=ON -DCMAKE_BUILD_TYPE=Release -DPYTHON_INCLUDE_DIR="C:\Python\Python36-32\include" -DPYTHON_LIBRARY="C:\Python\Python36-32\libs\python36.lib" -DPYTHON_DEBUG_LIBRARY="C:\Python\Python36-32\libs\python36_d.lib" -G "Visual Studio 15" .
 
 REM back to src_main
 popd
