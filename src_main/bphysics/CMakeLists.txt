@@ -10,7 +10,6 @@ if(NOT USE_SYSTEM_BULLET3)
 endif()
 find_package(BULLET3 REQUIRED)
 include_directories(${BULLET3_INCLUDE_DIR})
-# set(BULLET3_LIBRARY ${BULLET3_LIBRARY})
 
 #
 # bphysics module
@@ -49,8 +48,10 @@ add_library(bphysics SHARED
     ${BPHYSICS_SOURCES}
 )
 
+MESSAGE(${BULLET3_LIBS_RELEASE})
+
 target_link_libraries(bphysics PRIVATE 
-    release ${BULLET3_LIBS_RELEASE}
+    optimized ${BULLET3_LIBS_RELEASE}
     debug ${BULLET3_LIBS_DEBUG}
 )
 
