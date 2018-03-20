@@ -365,6 +365,9 @@ void SV_InitGame (void)
 	Com_sprintf (idmaster, sizeof (idmaster), "192.246.40.37:%i", PORT_MASTER);
 	NET_StringToAdr (idmaster, &master_adr[0]);
 
+    // init physics
+    SV_InitPhysProgs();
+
 	// init game
 	SV_InitGameProgs ();
 

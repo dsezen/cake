@@ -39,11 +39,16 @@ extern void PF_error (char *fmt, ...);
 /** Engine functions required by physics. */
 physics_export_t* pe = NULL;
 
+/** Physics module pointer. */
+static void* physics_module = NULL;
+
 ///////////////////////////////////////////////////////////////////////////////
 // Functions
 ///////////////////////////////////////////////////////////////////////////////
 
 /**
+ * SV_InitPhysProgs
+ *
  * Initializes imports for physics system.
  */
 void SV_InitPhysProgs(void)
@@ -79,7 +84,7 @@ void SV_InitPhysProgs(void)
 
     // load in the physics dll
     const char* physics_module_name = LIB_PREFIX "bphysics_" ARCH LIB_SUFFIX;
-    void* physics_module = Sys_LoadModule(physics_module_name);
+    physics_module = Sys_LoadModule(physics_module_name);
     if (!physics_module) {
         Com_Error(ERR_FATAL, "Could not load physics module");
     }
@@ -101,4 +106,23 @@ void SV_InitPhysProgs(void)
     }
 
     pe->Init();
+}
+
+/**
+ * SV_ShutdownPhysProgs
+ *
+ * Shuts down, cleans up, and unloads the physics module.
+ */
+void SV_ShutdownPhysProgs(void)
+{
+    if (!pe || !physics_module) {
+        return;
+    }
+
+    // Clean up physics.
+    pe->Shutdown();
+
+    // Unload and free library.
+    Sys_UnloadModule(physics_module);
+    pe = NULL;
 }

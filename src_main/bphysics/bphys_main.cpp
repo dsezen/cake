@@ -22,32 +22,100 @@
 // Main physics module function.
 ///////////////////////////////////////////////////////////////////////////////
 
-// ----------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////
 // Includes
-// ----------------------------------------------------------------------------
+///////////////////////////////////////////////////////////////////////////////
 
 /** Standard library includes. */
 #include <cstdarg>
 
-/** Shared code includes. */
-#include "q_shared.h"
-
-// ----------------------------------------------------------------------------
-// Globals
-// ----------------------------------------------------------------------------
-
-
-// ----------------------------------------------------------------------------
-// Required printf stub.
-// ----------------------------------------------------------------------------
-void Com_Printf(char *msg, ...)
+extern "C"
 {
-	va_list		argptr;
-	char		text[1024];
+    /** Shared code includes. */
+    #include "q_shared.h"
+    #include "bphysics_shared.h"
+}
 
-	va_start(argptr, msg);
-	vsprintf(text, msg, argptr);
-	va_end(argptr);
+///////////////////////////////////////////////////////////////////////////////
+// Globals
+///////////////////////////////////////////////////////////////////////////////
 
-	gi.dprintf("%s", text);
+/** List of exported functions and data from this module. */
+physics_export_t globals;
+
+/** List of imported functions from the engine. */
+physics_import_t pi;
+
+///////////////////////////////////////////////////////////////////////////////
+// Forward declarations.
+///////////////////////////////////////////////////////////////////////////////
+
+/** Subsystem management. */
+void InitPhysics(void);
+void ShutdownPhysics(void);
+
+///////////////////////////////////////////////////////////////////////////////
+// Exported
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * GetPhysicsAPI
+ *
+ * Returns a pointer to the structure with all entry points and global
+ * variables for this module.
+ */
+extern "C" Q_DLL_EXPORT physics_export_t* GetPhysicsAPI(physics_import_t* import)
+{
+    pi = *import;
+
+    globals.apiversion = PHYSICS_API_VERSION;
+    globals.Init = InitPhysics;
+    globals.Shutdown = ShutdownPhysics;
+
+    return &globals;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Module functions
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * InitPhysics
+ * 
+ * Initializes the physics system.
+ */
+void InitPhysics(void)
+{
+
+}
+
+/**
+ * ShutdownPhysics
+ *
+ * Cleans up and shuts down the physics system.
+ */
+void ShutdownPhysics(void)
+{
+
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Shared functions
+///////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Com_Printf
+ *
+ * Prints data to the given string.
+ */
+extern "C" void Com_Printf(char *msg, ...)
+{
+    va_list		argptr;
+    char		text[1024];
+
+    va_start(argptr, msg);
+    vsprintf(text, msg, argptr);
+    va_end(argptr);
+
+    pi.dprintf("%s", text);
 }

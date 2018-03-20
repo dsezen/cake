@@ -293,7 +293,7 @@ void SV_InitEdict (edict_t *e);
 //
 // sv_bphysics.c
 //
-extern physics_import_t* pe;
+extern physics_export_t* pe;
 
 void SV_InitPhysProgs (void);
 void SV_ShutdownPhysProgs (void);
