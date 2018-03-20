@@ -29,6 +29,9 @@
 /** Standard library includes. */
 #include <cstdarg>
 
+/** Bullet physics includes. */
+#include "btBulletDynamicsCommon.h"
+
 extern "C"
 {
     /** Shared code includes. */
@@ -45,6 +48,14 @@ physics_export_t globals;
 
 /** List of imported functions from the engine. */
 physics_import_t pi;
+
+/** Bullet physics globals. */
+btDefaultCollisionConfiguration* collisionConfig = nullptr;
+btCollisionDispatcher* dispatcher = nullptr;
+btBroadphaseInterface* overlappingPairCache = nullptr;
+btSequentialImpulseConstraintSolver* solver = nullptr;
+btDiscreteDynamicsWorld* dynamicsWorld = nullptr;
+btAlignedObjectArray<btCollisionShape*> collisionShapes;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Forward declarations.
@@ -86,7 +97,24 @@ extern "C" Q_DLL_EXPORT physics_export_t* GetPhysicsAPI(physics_import_t* import
  */
 void InitPhysics(void)
 {
+    // Allocate the default collision configuration.
+    collisionConfig = new btDefaultCollisionConfiguration();
 
+    // Allocate collision dispatcher
+    dispatcher = new btCollisionDispatcher(collisionConfig);
+
+    // Allocate broadphase interface
+    overlappingPairCache = new btDbvtBroadphase();
+
+    // Setup default constraint solver.
+    solver = new btSequentialImpulseConstraintSolver;
+
+    // Setup dynamics world
+    dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, 
+        overlappingPairCache, solver, collisionConfig);
+
+    // Set gravity
+    dynamicsWorld->setGravity(btVector3(0, -10, 0));
 }
 
 /**
@@ -96,7 +124,44 @@ void InitPhysics(void)
  */
 void ShutdownPhysics(void)
 {
+    // Remove rigid bodies from the dynamics world
+    for (int i = dynamicsWorld->getNumCollisionObjects() - 1; i >= 0; i--)
+    {
+        btCollisionObject* obj = dynamicsWorld->getCollisionObjectArray()[i];
+        btRigidBody* body = btRigidBody::upcast(obj);
+        if (body && body->getMotionState())
+        {
+            delete body->getMotionState();
+        }
+        dynamicsWorld->removeCollisionObject(body);
+        delete obj;
+    }
 
+    //delete collision shapes
+    for (int j = 0; j < collisionShapes.size(); j++)
+    {
+        btCollisionShape* shape = collisionShapes[j];
+        collisionShapes[j] = 0;
+        delete shape;
+    }
+
+    //delete dynamics world
+    delete dynamicsWorld;
+
+    //delete solver
+    delete solver;
+
+    //delete broadphase
+    delete overlappingPairCache;
+
+    //delete dispatcher
+    delete dispatcher;
+
+    //delete collision config
+    delete collisionConfig;
+
+    //clear up shapes list
+    collisionShapes.clear();
 }
 
 ///////////////////////////////////////////////////////////////////////////////

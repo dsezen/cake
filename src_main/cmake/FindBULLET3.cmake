@@ -48,6 +48,11 @@ SET(BULLET3_LIB_NAMES
     Bullet3Common
     Bullet3Dynamics
     Bullet3Geometry
+    BulletCollision
+    BulletDynamics
+    BulletInverseDynamics
+    BulletSoftBody
+    BulletRobotics
     LinearMath
 )
 

@@ -25,7 +25,12 @@
 // Definitions
 ///////////////////////////////////////////////////////////////////////////////
 
-#define PHYSICS_API_VERSION 1
+/** Version numbers. */
+#define PHYSICS_API_VERSION     1
+
+/** Allocation tags. */
+#define PHYSICS_ALLOC_TAG_BASE  400
+#define PHYSICS_ALLOC_TAG_SETUP (PHYSICS_ALLOC_TAG_BASE + 1)
 
 ///////////////////////////////////////////////////////////////////////////////
 // Includes

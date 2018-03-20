@@ -20,6 +20,7 @@ set(SHARED_INCLUDES
 	../shared/game.h
 	../shared/q_shared.h
 	../shared/qfiles.h
+    ../shared/bphysics_shared.h
 	)
 set(SHARED_SOURCES
 	../shared/m_flash.c
@@ -27,6 +28,10 @@ set(SHARED_SOURCES
 	)
 source_group("shared" FILES ${SHARED_INCLUDES})
 source_group("shared" FILES ${SHARED_SOURCES})
+
+# bullet code
+file(GLOB BULLET3_INCLUDES ${BULLET3_INCLUDE_DIR}/*.h)
+source_group("Bullet Physics" FILES ${BULLET3_INCLUDES})
 
 # physics dll code
 file(GLOB BPHYSICS_INCLUDES *.h)
@@ -38,6 +43,7 @@ source_group("bphysics" FILES ${BPHYSICS_SOURCES})
 include_directories(
     .
     ../shared
+    ${BULLET3_INCLUDE_DIR}
 )
 
 # build the bphysics dll
@@ -50,10 +56,13 @@ add_library(bphysics SHARED
 
 MESSAGE(${BULLET3_LIBS_RELEASE})
 
-target_link_libraries(bphysics PRIVATE 
-    optimized ${BULLET3_LIBS_RELEASE}
-    debug ${BULLET3_LIBS_DEBUG}
-)
+FOREACH(_LIB ${BULLET3_LIBS_DEBUG})
+    target_link_libraries(bphysics PRIVATE debug ${_LIB})
+ENDFOREACH()
+
+FOREACH(_LIB ${BULLET3_LIBS_RELEASE})
+    target_link_libraries(bphysics PRIVATE optimized ${_LIB})
+ENDFOREACH()
 
 q_set_output_dir(bphysics ${Q_GAME_DIR})
 install(TARGETS bphysics RUNTIME DESTINATION ${Q_GAME_DIR} LIBRARY DESTINATION ${Q_GAME_DIR})
