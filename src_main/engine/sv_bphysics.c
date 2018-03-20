@@ -54,7 +54,8 @@ void SV_InitPhysProgs(void)
         SV_ShutdownPhysProgs();
     }
 
-    // load a new game dll
+    // fill in the functions required from the engine
+    // interface
     import.bprintf       = SV_BroadcastPrintf;
     import.dprintf       = PF_dprintf;
 
@@ -72,4 +73,8 @@ void SV_InitPhysProgs(void)
     import.argc          = Cmd_Argc;
     import.argv          = Cmd_Argv;
     import.args          = Cmd_Args;
+
+    // load in the physics dll
+    const char* physics_module_name = LIB_PREFIX "bphysics_" ARCH LIB_SUFFIX;
+    void* physics_module = Sys_LoadModule(physics_module_name);
 }

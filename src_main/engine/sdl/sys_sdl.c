@@ -744,7 +744,7 @@ void* Sys_LoadModule(const char* module_name)
     void* module_handle = (void *)0;
 
     // Write the name of the module into 'name'.
-    Com_sprintf(name, sizeof(name), LIB_PREFIX "%s_" ARCH LIB_SUFFIX, module_name);
+    Com_sprintf(name, sizeof(name), "%s", module_name);
 
     // Grab current working directory and check that first.
     Q_getwd(cwd);
@@ -825,47 +825,26 @@ Loads the game dll
 */
 void *Sys_GetGameAPI (void *parms)
 {
-	void	* (*GetGameAPI) (void *);
-	char	name[MAX_OSPATH];
-	char	*path;
-	char	cwd[MAX_OSPATH];
-	const char *gamename = LIB_PREFIX "game_" ARCH LIB_SUFFIX;
+    void* (*GetGameAPI) (void *);	
+	const char *game_name = LIB_PREFIX "game_" ARCH LIB_SUFFIX;
 
 	if (game_library)
 		Com_Error(ERR_FATAL, "Sys_GetGameAPI without Sys_UnloadingGame");
 
-	// check the current directory for other development purposes
-	Q_getwd(cwd);
-	Com_sprintf(name, sizeof(name), "%s/%s", cwd, gamename);
-	game_library = SDL_LoadObject(name);
-	if (!game_library)
-	{
-		// now run through the search paths
-		path = NULL;
+    // Attempt to load the game module.
+    game_library = Sys_LoadModule(game_name);
+    if (!game_library)
+        Com_Error(ERR_FATAL, "Sys_GetGameAPI failed to load game module %s", game_name);
 
-		while (1)
-		{
-			path = FS_NextPath(path);
+    // Attempt to retrieve the game api function.
+    GetGameAPI = Sys_GetModuleProc(game_library, "GetGameAPI");
+    if (!GetGameAPI)
+    {
+        Sys_UnloadGame();
+        return NULL;
+    }
 
-			if (!path)
-				return NULL; // couldn't find one anywhere
-
-			Com_sprintf(name, sizeof(name), "%s/%s", path, gamename);
-			game_library = SDL_LoadObject(name);
-			if (game_library)
-			{
-				break;
-			}
-		}
-	}
-
-	GetGameAPI = (void *)SDL_LoadFunction(game_library, "GetGameAPI");
-	if (!GetGameAPI)
-	{
-		Sys_UnloadGame();
-		return NULL;
-	}
-
+    // Retrieve the game api.
 	return GetGameAPI(parms);
 }
 
