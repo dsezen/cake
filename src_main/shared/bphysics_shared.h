@@ -35,10 +35,18 @@
 #include "q_shared.h"
 
 ///////////////////////////////////////////////////////////////////////////////
+// Defines
+///////////////////////////////////////////////////////////////////////////////
+
+/** Physics API export. */
+#define PHYSICS_API_PROC "GetPhysicsAPI"
+typedef void* (*GetPhysicsAPIFn)(void *);
+
+///////////////////////////////////////////////////////////////////////////////
 // Structs
 ///////////////////////////////////////////////////////////////////////////////
 
-/** Engine <-> Physics system API interface. */
+/** Engine -> Physics system interface. */
 typedef struct
 {
     // special messages
@@ -67,3 +75,16 @@ typedef struct
     char* (*argv)               (int n);
     char* (*args)               (void);	// concatenation of all argv >= 1
 } physics_import_t;
+
+/** Physics -> Engine API. */
+typedef struct
+{
+    /** Version of the physics api. */
+    int apiversion;
+
+    // the init function will only be called when a game starts,
+    // not each time a level is loaded. Persistant data for clients
+    // and the server can be allocated in init
+    void (*Init)     (void);
+    void (*Shutdown) (void);
+} physics_export_t;

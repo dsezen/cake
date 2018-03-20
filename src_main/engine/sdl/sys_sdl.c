@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 #include "qcommon.h"
 #include "input.h"
+#include "game.h"
 
 #include "SDL.h"
 
@@ -464,7 +465,7 @@ Sys_Nanosleep
 */
 void Sys_Nanosleep(int nanosec)
 {
-#ifdef WIN32
+#if defined(_WIN32) && !defined(WIN_UWP)
 	HANDLE timer;
 	LARGE_INTEGER li;
 
@@ -477,6 +478,8 @@ void Sys_Nanosleep(int nanosec)
 	WaitForSingleObject(timer, INFINITE);
 
 	CloseHandle(timer);
+#elif defined(WIN_UWP)
+	// TODO: UWP doesn't have Create or Set waitable timer functions
 #else
 	struct timespec t = { 0, nanosec };
 	nanosleep(&t, NULL);
@@ -522,7 +525,7 @@ void Sys_SetIcon(void)
 }
 
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(WIN_UWP)
 /*
 ================
 Sys_SetHighDPIMode
@@ -610,7 +613,7 @@ void Sys_Init (void)
 	// init SDL timer
 	Sys_InitTime();
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(WIN_UWP)
 	// force DPI awareness in Windows
 	Sys_SetHighDPIMode();
 #endif
@@ -627,6 +630,7 @@ Sys_ConsoleInput
 */
 char *Sys_ConsoleInput (void)
 {
+#ifndef WIN_UWP
 	static char text[256];
 	int len;
 	fd_set fdset;
@@ -668,6 +672,9 @@ char *Sys_ConsoleInput (void)
 	text[len - 1] = 0; // rip off the /n and terminate
 
 	return (text);
+#else
+	return NULL;
+#endif
 }
 
 
@@ -680,12 +687,14 @@ Print text to the dedicated console
 */
 void Sys_ConsoleOutput (char *string)
 {
+#ifndef WIN_UWP
 	if (nostdout && nostdout->value)
 	{
 		return;
 	}
 
 	fputs(string, stdout);
+#endif
 }
 
 
@@ -808,10 +817,12 @@ Sys_UnloadGame
 */
 void Sys_UnloadGame (void)
 {
+#ifndef MONOLITH
 	SDL_UnloadObject(game_library);
 
 	if (!game_library)
 		Com_Error (ERR_FATAL, "FreeLibrary failed for game library");
+#endif
 
 	game_library = NULL;
 }
@@ -825,27 +836,54 @@ Loads the game dll
 */
 void *Sys_GetGameAPI (void *parms)
 {
-    void* (*GetGameAPI) (void *);	
-	const char *game_name = LIB_PREFIX "game_" ARCH LIB_SUFFIX;
+    void* (*GetGameAPI) (void *);
+#ifndef MONOLITH
+	char	name[MAX_OSPATH];
+	char	*path;
+	char	cwd[MAX_OSPATH];
+	const char *gamename = LIB_PREFIX "game_" ARCH LIB_SUFFIX;
 
 	if (game_library)
 		Com_Error(ERR_FATAL, "Sys_GetGameAPI without Sys_UnloadingGame");
 
-    // Attempt to load the game module.
-    game_library = Sys_LoadModule(game_name);
-    if (!game_library)
-        Com_Error(ERR_FATAL, "Sys_GetGameAPI failed to load game module %s", game_name);
+	// check the current directory for other development purposes
+	Q_getwd(cwd);
+	Com_sprintf(name, sizeof(name), "%s/%s", cwd, gamename);
+	game_library = SDL_LoadObject(name);
+	if (!game_library)
+	{
+		// now run through the search paths
+		path = NULL;
 
-    // Attempt to retrieve the game api function.
-    GetGameAPI = Sys_GetModuleProc(game_library, "GetGameAPI");
-    if (!GetGameAPI)
-    {
-        Sys_UnloadGame();
-        return NULL;
-    }
+		while (1)
+		{
+			path = FS_NextPath(path);
 
-    // Retrieve the game api.
+			if (!path)
+				return NULL; // couldn't find one anywhere
+
+			Com_sprintf(name, sizeof(name), "%s/%s", path, gamename);
+			game_library = SDL_LoadObject(name);
+			if (game_library)
+			{
+				break;
+			}
+		}
+	}
+
+	GetGameAPI = (void *)SDL_LoadFunction(game_library, "GetGameAPI");
+	if (!GetGameAPI)
+	{
+		Sys_UnloadGame();
+		return NULL;
+	}
+
 	return GetGameAPI(parms);
+#else
+	extern game_export_t *GetGameAPI(game_import_t *import);
+
+	return GetGameAPI(parms);
+#endif
 }
 
 //=======================================================================

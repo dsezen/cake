@@ -37,7 +37,7 @@ extern void PF_error (char *fmt, ...);
 ///////////////////////////////////////////////////////////////////////////////
 
 /** Engine functions required by physics. */
-physics_import_t* pe;
+physics_export_t* pe = NULL;
 
 ///////////////////////////////////////////////////////////////////////////////
 // Functions
@@ -74,7 +74,31 @@ void SV_InitPhysProgs(void)
     import.argv          = Cmd_Argv;
     import.args          = Cmd_Args;
 
+    // now retrieve the functions from the physics dll
+    // that we'll need within the engine.
+
     // load in the physics dll
     const char* physics_module_name = LIB_PREFIX "bphysics_" ARCH LIB_SUFFIX;
     void* physics_module = Sys_LoadModule(physics_module_name);
+    if (!physics_module) {
+        Com_Error(ERR_FATAL, "Could not load physics module");
+    }
+
+    // Retrieve the physics API accessor.
+    GetPhysicsAPIFn pfnGetPhysicsAPI = (GetPhysicsAPIFn)Sys_GetModuleProc(physics_module, "GetPhysicsAPI");
+    if (!pfnGetPhysicsAPI) {
+        Com_Error(ERR_FATAL, "Could not get physics api");
+    }
+
+    // Query the physics API from the dll file.
+    pe = pfnGetPhysicsAPI(&import);
+    if (!pe) {
+        Com_Error(ERR_DROP, "Failed to query physics module.");
+    }
+
+    if (pe->apiversion != PHYSICS_API_VERSION) {
+        Com_Error(ERR_DROP, "physics is version %i, not %i", pe->apiversion, PHYSICS_API_VERSION);
+    }
+
+    pe->Init();
 }

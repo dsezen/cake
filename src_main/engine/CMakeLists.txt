@@ -13,6 +13,7 @@ else (GLEW_FOUND)
     include_directories("../libs/glew/include")
     set(GLEW_LIBRARY "")
     add_definitions(-DGLEW_STATIC)
+	message(STATUS "Using builtin glew")
 endif (GLEW_FOUND)
 
 # sdl
@@ -31,6 +32,7 @@ if (MAD_FOUND)
 else (MAD_FOUND)
     include_directories("../libs/mad/include")
     set(MAD_LIBRARY "" )
+	message(STATUS "Using builtin libmad")
 endif (MAD_FOUND)
 
 # libmodplug
@@ -41,17 +43,11 @@ if (MODPLUG_FOUND)
 else (MODPLUG_FOUND)
     include_directories("../libs/modplug/src")
     set(MODPLUG_LIBRARY "" )
+	message(STATUS "Using builtin libmodplug")
 endif (MODPLUG_FOUND)
 
-# libgamespy
-#find_package(GAMESPY)
-if (GAMESPY_FOUND)
-    include_directories(${GAMESPY_INCLUDE_DIRS})
-    set(GAMESPY_LIBRARY ${GAMESPY_LIBRARIES})
-else (GAMESPY_FOUND)
-    include_directories("../libs/gamespy")
-    set(GAMESPY_LIBRARY "" )
-endif (GAMESPY_FOUND)
+# gamespy library
+include_directories("../libs/gamespy")
 
 # stb headers
 include_directories("../libs/stb")
@@ -146,6 +142,7 @@ set(SERVER_INCLUDES
 	server.h
 	)
 set(SERVER_SOURCES
+    sv_bphysics.c
 	sv_ccmds.c
 	sv_cmodel.c
 	sv_ents.c
@@ -232,24 +229,18 @@ endif (NOT MODPLUG_FOUND)
 source_group("libs\\modplug" FILES ${MODPLUG_INCLUDES})
 source_group("libs\\modplug" FILES ${MODPLUG_SOURCES})
 
-# libgamespy
-if (NOT GAMESPY_FOUND)
-	file(GLOB GAMESPY_INCLUDES ../libs/gamespy/*.h ../libs/gamespy/CEngine/*.h)
-	file(GLOB GAMESPY_SOURCES ../libs/gamespy/*.c ../libs/gamespy/CEngine/*.c)
-else (NOT GAMESPY_FOUND)
-    set(GAMESPY_INCLUDES "")
-    set(GAMESPY_SOURCES "")
-endif (NOT GAMESPY_FOUND)
+# gamespy library
+file(GLOB GAMESPY_INCLUDES ../libs/gamespy/*.h ../libs/gamespy/CEngine/*.h)
+file(GLOB GAMESPY_SOURCES ../libs/gamespy/*.c ../libs/gamespy/CEngine/*.c)
 source_group("libs\\gamespy" FILES ${GAMESPY_INCLUDES})
 source_group("libs\\gamespy" FILES ${GAMESPY_SOURCES})
-
 
 
 #
 # Engine Executable
 #
 
-# main engine executable inlcudes and source list
+# main engine executable includes and source list
 set(CAKE_INCLUDES
 			${CLIENT_INCLUDES}
 			${MENU_INCLUDES}
@@ -277,7 +268,7 @@ set(CAKE_SOURCES
 			${GAMESPY_SOURCES}
 			)
 
-if(MONOLITH)
+if (MONOLITH)
 	list(APPEND CAKE_INCLUDES
 		${GAME_INCLUDES}
 		)
@@ -285,7 +276,52 @@ if(MONOLITH)
 		${GAME_SOURCES}
 		)
 
-	add_definitions(-D__MONOLITH_GAME__)
+	add_definitions(-DMONOLITH)
+endif()
+
+if (WIN_UWP)
+	# set manifest names and guid
+	set(APP_MANIFEST_NAME Package.appxmanifest)
+	set(EXE_NAME cake)
+	set(SHORT_NAME ${EXE_NAME})
+	set(PACKAGE_GUID "6515377e-dfd4-4cdb-80df-4e0326346efc")
+
+	# setup application manifest
+	configure_file(
+		winrt/${APP_MANIFEST_NAME}
+		${CMAKE_CURRENT_BINARY_DIR}/${APP_MANIFEST_NAME}
+		@ONLY
+		)
+
+	# sources
+	set(WIN_UWP_SOURCES
+		winrt/SDL_winrt_main_NonXAML.cpp
+		)
+	source_group("system\\winrt" FILES ${WIN_UWP_SOURCES})
+	
+	# resources
+	set(WIN_UWP_RESOURCES
+		${CMAKE_CURRENT_BINARY_DIR}/${APP_MANIFEST_NAME}
+		winrt/TemporaryKey.pfx
+		winrt/SDL2-WinRTResource_BlankCursor.cur
+		winrt/SDL2-WinRTResources.rc
+		)
+	source_group("system\\winrt\\Resources" FILES ${WIN_UWP_RESOURCES})
+	set(ASSET_FILES
+		winrt/assets/LockScreenLogo.scale-200.png
+		winrt/assets/SplashScreen.scale-200.png
+		winrt/assets/Square44x44Logo.scale-200.png
+		winrt/assets/Square44x44Logo.targetsize-24_altform-unplated.png
+		winrt/assets/Square150x150Logo.scale-200.png
+		winrt/assets/StoreLogo.png
+		winrt/assets/Wide310x150Logo.scale-200.png
+	)
+	source_group("system\\winrt\\Assets" FILES ${ASSET_FILES})
+	set_property(SOURCE ${ASSET_FILES} PROPERTY VS_DEPLOYMENT_CONTENT 1)
+	set_property(SOURCE ${ASSET_FILES} PROPERTY VS_DEPLOYMENT_LOCATION "Assets")
+
+	# append source and resources
+	list(APPEND CAKE_SOURCES ${WIN_UWP_RESOURCES} ${WIN_UWP_SOURCES})
 endif()
 
 # set include directories
@@ -303,6 +339,7 @@ if(MSVC)
 
 	# build the engine
 	add_executable(cake WIN32 ${CAKE_INCLUDES} ${CAKE_SOURCES})
+if (NOT WIN_UWP)
 	target_link_libraries(cake PRIVATE
 		${SDLx_LIBRARY}
 		opengl32
@@ -314,8 +351,20 @@ if(MSVC)
 		${CMAKE_DL_LIBS}
 		refresh
 		)
+else()
+	target_link_libraries(cake PRIVATE
+		${SDLx_LIBRARY}
+		${CMAKE_DL_LIBS}
+		refresh
+		)
+	target_include_directories(cake PRIVATE .
+		../shared
+		../refresh
+		)
+	set_property(TARGET cake PROPERTY VS_WINRT_COMPONENT TRUE)			
+endif()		
 	set_target_properties(cake PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/..")
-
+	
 else()
 
 	find_package(OpenGL REQUIRED)
