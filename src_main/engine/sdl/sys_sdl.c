@@ -716,6 +716,80 @@ char *Sys_GetClipboardData (void)
 	return data;
 }
 
+/**
+ * Sys_UnloadModule
+ * Given a module handle, unloads it from the process.
+ */
+qboolean Sys_UnloadModule(void* module_handle)
+{
+    if (!module_handle)
+    {
+        return false;
+    }
+
+    SDL_UnloadObject(module_handle);
+
+    return true;
+}
+
+/**
+ * Sys_LoadModule
+ * Loads and returns the handle of a given module.
+ */
+void* Sys_LoadModule(const char* module_name)
+{
+    char  name[MAX_OSPATH] = { '\0' };
+    char  cwd[MAX_OSPATH] = { '\0' };
+    char* path = (char *)0;
+    void* module_handle = (void *)0;
+
+    // Write the name of the module into 'name'.
+    Com_sprintf(name, sizeof(name), LIB_PREFIX "%s_" ARCH LIB_SUFFIX, module_name);
+
+    // Grab current working directory and check that first.
+    Q_getwd(cwd);
+    Com_sprintf(name, sizeof(name), "%s/%s", cwd, module_name);
+
+    // Attempt to load the module.
+    module_handle = SDL_LoadObject(name);
+    if (!module_handle)
+    {
+        // Run through search paths until we find the module.
+        path = NULL;
+        while (1)
+        {
+            path = FS_NextPath(path);
+
+            if (!path)
+                return NULL; // couldn't find one anywhere
+
+            Com_sprintf(name, sizeof(name), "%s/%s", path, module_name);
+            module_handle = SDL_LoadObject(name);
+            if (module_handle)
+            {
+                break;
+            }
+        }
+    }
+
+    return module_handle;
+}
+
+/**
+ * Sys_GetModuleProc
+ * Returns the address of a procedure in a shared object file.
+ */
+void* Sys_GetModuleProc(void* module_handle, const char* proc_name)
+{
+    if (!module_handle || !proc_name || proc_name[0] == '\0')
+    {
+        Com_Error(ERR_FATAL, "Sys_GetModuleProc(%s) failed!\n", proc_name);
+        return NULL;
+    }
+
+    return SDL_LoadFunction(module_handle, proc_name);
+}
+
 
 /*
 ========================================================================

@@ -24,6 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 #include "qcommon.h"
 #include "game.h"
+#include "bphysics_shared.h"
 
 //=============================================================================
 
@@ -289,6 +290,13 @@ void SV_InitGameProgs (void);
 void SV_ShutdownGameProgs (void);
 void SV_InitEdict (edict_t *e);
 
+//
+// sv_bphysics.c
+//
+extern physics_import_t* pe;
+
+void SV_InitPhysProgs (void);
+void SV_ShutdownPhysProgs (void);
 
 
 //============================================================

@@ -855,12 +855,17 @@ NON-PORTABLE SYSTEM SERVICES
 ==============================================================
 */
 
-void	Sys_Init (void);
-void	Sys_Quit (void);
+void	Sys_Init         (void);
+void	Sys_Quit         (void);
 
-void	Sys_UnloadGame (void);
-void	*Sys_GetGameAPI (void *parms);
-// loads the game dll and calls the api init function
+/** Module management code. */
+void*   Sys_LoadModule   (const char* module_name);
+void*   Sys_GetModuleProc(void* module_handle, const char* proc_name);
+qboolean Sys_UnloadModule (void* module_handle);
+
+/** Game-specific module management code. */
+void	Sys_UnloadGame   (void);
+void	*Sys_GetGameAPI  (void *parms);
 
 char	*Sys_ConsoleInput (void);
 void	Sys_ConsoleOutput (char *string);
