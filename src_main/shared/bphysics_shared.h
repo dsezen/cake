@@ -45,7 +45,7 @@
 
 /** Physics API export. */
 #define PHYSICS_API_PROC "GetPhysicsAPI"
-typedef void* (*GetPhysicsAPIFn)(void *);
+typedef void* (__cdecl *GetPhysicsAPIFn)(void *);
 
 ///////////////////////////////////////////////////////////////////////////////
 // Structs
@@ -90,6 +90,6 @@ typedef struct
     // the init function will only be called when a game starts,
     // not each time a level is loaded. Persistant data for clients
     // and the server can be allocated in init
-    void (*Init)     (void);
-    void (*Shutdown) (void);
+    void (__cdecl *Init)     (void);
+    void (__cdecl *Shutdown) (void);
 } physics_export_t;

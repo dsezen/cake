@@ -62,8 +62,11 @@ btAlignedObjectArray<btCollisionShape*> collisionShapes;
 ///////////////////////////////////////////////////////////////////////////////
 
 /** Subsystem management. */
-void InitPhysics(void);
-void ShutdownPhysics(void);
+extern "C"
+{
+    void __cdecl InitPhysics(void);
+    void __cdecl ShutdownPhysics(void);
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 // Exported
@@ -95,7 +98,7 @@ extern "C" Q_DLL_EXPORT physics_export_t* GetPhysicsAPI(physics_import_t* import
  * 
  * Initializes the physics system.
  */
-void InitPhysics(void)
+extern "C" void __cdecl InitPhysics(void)
 {
     // Allocate the default collision configuration.
     collisionConfig = new btDefaultCollisionConfiguration();
@@ -122,8 +125,9 @@ void InitPhysics(void)
  *
  * Cleans up and shuts down the physics system.
  */
-void ShutdownPhysics(void)
+extern "C" void __cdecl ShutdownPhysics(void)
 {
+#if 0
     // Remove rigid bodies from the dynamics world
     for (int i = dynamicsWorld->getNumCollisionObjects() - 1; i >= 0; i--)
     {
@@ -144,21 +148,27 @@ void ShutdownPhysics(void)
         collisionShapes[j] = 0;
         delete shape;
     }
+#endif
 
     //delete dynamics world
     delete dynamicsWorld;
+    dynamicsWorld = nullptr;
 
     //delete solver
     delete solver;
+    solver = nullptr;
 
     //delete broadphase
     delete overlappingPairCache;
+    overlappingPairCache = nullptr;
 
     //delete dispatcher
     delete dispatcher;
+    dispatcher = nullptr;
 
     //delete collision config
     delete collisionConfig;
+    collisionConfig = nullptr;
 
     //clear up shapes list
     collisionShapes.clear();
