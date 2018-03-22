@@ -56,6 +56,7 @@ typedef struct wwvert_s
 GLuint r_postvbo = 0;
 GLuint r_postvao = 0;
 
+qboolean r_skippost = false;
 qboolean r_dowaterwarppost = false;
 
 GLuint r_warpGradientImage;
@@ -85,16 +86,6 @@ void RPostProcess_CreatePrograms(void)
 	byte *data = NULL;
 	byte lumdata[1][1][4];
 	int width, height, x, y;
-
-	// create shaders
-	gl_compositeprog = GL_CreateShaderFromName("glsl/composite.glsl", "CompositeVS", "CompositeFS");
-	gl_postprog = GL_CreateShaderFromName("glsl/post.glsl", "PostVS", "PostFS");
-	gl_ssaoprog = GL_CreateShaderFromName("glsl/ssao.glsl", "SSAOVS", "SSAOFS");
-	gl_fxaaprog = GL_CreateShaderFromName("glsl/fxaa.glsl", "FXAAVS", "FXAAFS");
-
-	// create compute shaders
-	gl_calcLumProg = GL_CreateComputeShaderFromName("glsl/calcLum.cs");
-	gl_calcAdaptiveLumProg = GL_CreateComputeShaderFromName("glsl/calcAdaptiveLum.cs");
 
 	// create texture for underwater warp gradient
 	LoadTGAFile("env/warpgradient.tga", &data, &width, &height);
@@ -234,6 +225,25 @@ void RPostProcess_CreatePrograms(void)
 
 	glEnableVertexArrayAttribEXT (r_postvao, 2);
 	glVertexArrayVertexAttribOffsetEXT (r_postvao, r_postvbo, 2, 2, GL_FLOAT, GL_FALSE, sizeof (wwvert_t), 8);
+
+	// do functionality test, as we don't want to load shaders that we don't need
+	if (!GLEW_ARB_texture_gather || !gl_config.gl_ext_GPUShader5_support || !gl_config.gl_ext_computeShader_support)
+	{
+		// these won't quite work out that great on lesser hardware,
+		// so skip post-processing when the hardware doesn't support it
+		r_skippost = true;
+		return;
+	}
+
+	// create shaders
+	gl_compositeprog = GL_CreateShaderFromName("glsl/composite.glsl", "CompositeVS", "CompositeFS");
+	gl_postprog = GL_CreateShaderFromName("glsl/post.glsl", "PostVS", "PostFS");
+	gl_ssaoprog = GL_CreateShaderFromName("glsl/ssao.glsl", "SSAOVS", "SSAOFS");
+	gl_fxaaprog = GL_CreateShaderFromName("glsl/fxaa.glsl", "FXAAVS", "FXAAFS");
+
+	// create compute shaders
+	gl_calcLumProg = GL_CreateComputeShaderFromName("glsl/calcLum.cs");
+	gl_calcAdaptiveLumProg = GL_CreateComputeShaderFromName("glsl/calcAdaptiveLum.cs");
 
 	// set up shader uniforms
 	u_compositeMode = glGetUniformLocation(gl_compositeprog, "compositeMode");
@@ -455,7 +465,7 @@ void RPostProcess_SSAO(void)
 	vec2_t texScale;
 	vec3_t zFarParam;
 
-	if (!r_ssao->value || !GLEW_ARB_texture_gather)
+	if (!r_ssao->value)
 		return;
 
 	// blit current framebuffer into ambient occlusion buffer
@@ -494,7 +504,7 @@ void RPostProcess_FXAA(void)
 {
 	vec2_t texScale;
 
-	if (!r_fxaa->value || !GLEW_ARB_gpu_shader5)
+	if (!r_fxaa->value)
 		return;
 
 	// set screen scale
@@ -542,11 +552,11 @@ void RPostProcess_Begin(void)
 {
 	mleaf_t *leaf;
 
+	if (r_skippost || !r_postprocessing->value) return;
 	if (!r_worldmodel) return;
 	if (r_newrefdef.rdflags & RDF_NOWORLDMODEL) return;
-	if (!r_postprocessing->value) return;
 	if (!hdrRenderFBO) return;
-
+	
 	// bind HDR framebuffer object
 	R_BindFBO(hdrRenderFBO);
 
@@ -568,9 +578,9 @@ void RPostProcess_Begin(void)
 
 void RPostProcess_FinishToScreen(void)
 {
+	if (r_skippost || !r_postprocessing->value) return;
 	if (!r_worldmodel) return;
 	if (r_newrefdef.rdflags & RDF_NOWORLDMODEL) return;
-	if (!r_postprocessing->value) return;
 	if (!hdrRenderFBO) return;
 
 	R_BindNullFBO ();
