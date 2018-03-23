@@ -12,6 +12,14 @@ find_package(BULLET3 REQUIRED)
 include_directories(${BULLET3_INCLUDE_DIR})
 
 #
+# flags
+#
+
+# Need double precision since that's what the libraries are
+# compiled with.
+add_definitions(-DBT_USE_DOUBLE_PRECISION)
+
+#
 # bphysics module
 #
 
@@ -46,7 +54,7 @@ include_directories(
     ${BULLET3_INCLUDE_DIR}
 )
 
-# build the bphysics dll
+# collect physics dll files
 add_library(bphysics SHARED 
     ${SHARED_INCLUDES} 
     ${SHARED_SOURCES} 
@@ -54,8 +62,7 @@ add_library(bphysics SHARED
     ${BPHYSICS_SOURCES}
 )
 
-MESSAGE(${BULLET3_LIBS_RELEASE})
-
+# collect physics libraries
 FOREACH(_LIB ${BULLET3_LIBS_DEBUG})
     target_link_libraries(bphysics PRIVATE debug ${_LIB})
 ENDFOREACH()
@@ -66,3 +73,5 @@ ENDFOREACH()
 
 q_set_output_dir(bphysics ${Q_GAME_DIR})
 install(TARGETS bphysics RUNTIME DESTINATION ${Q_GAME_DIR} LIBRARY DESTINATION ${Q_GAME_DIR})
+
+# 

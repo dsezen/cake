@@ -117,7 +117,7 @@ extern "C" void __cdecl InitPhysics(void)
         overlappingPairCache, solver, collisionConfig);
 
     // Set gravity
-    dynamicsWorld->setGravity(btVector3(0, -10, 0));
+    //dynamicsWorld->setGravity(btVector3(0, -10, 0));
 }
 
 /**
@@ -127,7 +127,7 @@ extern "C" void __cdecl InitPhysics(void)
  */
 extern "C" void __cdecl ShutdownPhysics(void)
 {
-#if 0
+
     // Remove rigid bodies from the dynamics world
     for (int i = dynamicsWorld->getNumCollisionObjects() - 1; i >= 0; i--)
     {
@@ -148,7 +148,6 @@ extern "C" void __cdecl ShutdownPhysics(void)
         collisionShapes[j] = 0;
         delete shape;
     }
-#endif
 
     //delete dynamics world
     delete dynamicsWorld;
