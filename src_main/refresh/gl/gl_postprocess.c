@@ -530,7 +530,7 @@ void RPostProcess_FXAA(void)
 void RPostProcess_MenuBackground(void)
 {
 	vec2_t texScale;
-
+	
 	// set screen scale
 	texScale[0] = 1.0f / vid.width;
 	texScale[1] = 1.0f / vid.height;

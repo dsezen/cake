@@ -21,7 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 // qcommon.h -- definitions common between client and server, but not game.dll
 #include "q_shared.h"
 
-#define	VERSION		3.21
+#define	VERSION		0.10
 
 #define	BASEDIRNAME	"baseq2"
 
@@ -646,13 +646,10 @@ extern	byte		net_message_buffer[MAX_MSGLEN];
 void Netchan_Init (void);
 void Netchan_Setup (netsrc_t sock, netchan_t *chan, netadr_t adr, int qport);
 
-qboolean Netchan_NeedReliable (netchan_t *chan);
 void Netchan_Transmit (netchan_t *chan, int length, byte *data);
 void Netchan_OutOfBand (int net_socket, netadr_t adr, int length, byte *data);
 void Netchan_OutOfBandPrint (int net_socket, netadr_t adr, char *format, ...);
 qboolean Netchan_Process (netchan_t *chan, sizebuf_t *msg);
-
-qboolean Netchan_CanReliable (netchan_t *chan);
 
 
 /*
@@ -754,6 +751,7 @@ void	FS_FreeFile (void *buffer);
 
 void	FS_CreatePath (char *path);
 
+qboolean FS_ExistsInGameDir(char *filename);
 
 /* The following FS_*() stdio replacements are necessary if one is
 * to perform non-sequential reads on files reopened on pak files
