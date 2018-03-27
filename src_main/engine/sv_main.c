@@ -743,6 +743,18 @@ void SV_PrepWorldFrame (void)
 
 }
 
+/*
+=================
+SV_RunPhysicsFrame
+
+Called every frame. May or may not run physics depending
+on the amount of time elapsed since last frame (dt).
+=================
+*/
+void SV_RunPhysicsFrame (int dt)
+{
+    pe->Update(dt);
+}
 
 /*
 =================
@@ -829,6 +841,9 @@ void SV_Frame (int msec)
 
 	// let everything in the world think and move
 	SV_RunGameFrame ();
+
+    // run physics
+    SV_RunPhysicsFrame (msec);
 
 	// send messages back to the clients that had packets read this frame
 	SV_SendClientMessages ();

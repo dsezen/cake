@@ -219,7 +219,7 @@ set(SYSTEM_SOURCES
 source_group("system\\sdl" FILES ${SYSTEM_INCLUDES})
 source_group("system\\sdl" FILES ${SYSTEM_SOURCES})
 
-# shared code
+# shared quake code
 set(SHARED_INCLUDES
 	../shared/game.h
 	../shared/q_platform.h
@@ -232,6 +232,10 @@ set(SHARED_SOURCES
 	)
 source_group("shared" FILES ${SHARED_INCLUDES})
 source_group("shared" FILES ${SHARED_SOURCES})
+
+# shared physics code
+file(GLOB_RECURSE BPHYSICS_SHARED_INCLUDES ../shared/bphysics/*.h)
+source_group("shared\\bphysics" FILES ${BPHYSICS_SHARED_INCLUDES})
 
 # game dll code
 file(GLOB GAME_INCLUDES ../game/*.h)

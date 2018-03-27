@@ -40,15 +40,38 @@
 #include "q_shared.h"
 
 ///////////////////////////////////////////////////////////////////////////////
+// Types
+///////////////////////////////////////////////////////////////////////////////
+
+/** Scalar type. */
+typedef double qscalar;
+
+/** Rigid body handle. */
+typedef uintptr_t bphys_body_handle_t;
+#define INVALID_BPHYS_BODY_HANDLE (bphys_body_handle_t)-1
+
+///////////////////////////////////////////////////////////////////////////////
 // Defines
 ///////////////////////////////////////////////////////////////////////////////
 
 /** Physics API export. */
 #define PHYSICS_API_PROC "GetPhysicsAPI"
-typedef void* (__cdecl *GetPhysicsAPIFn)(void *);
+typedef void* (*GetPhysicsAPIFn)(void *);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Structs
+// Structures
+///////////////////////////////////////////////////////////////////////////////
+
+/** Base shape structure. */
+typedef struct
+{
+    uintptr_t shape_ptr;
+} bphysics_shape;
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+// Interfaces
 ///////////////////////////////////////////////////////////////////////////////
 
 /** Engine -> Physics system interface. */
@@ -87,9 +110,13 @@ typedef struct
     /** Version of the physics api. */
     int apiversion;
 
-    // the init function will only be called when a game starts,
-    // not each time a level is loaded. Persistant data for clients
-    // and the server can be allocated in init
-    void (__cdecl *Init)     (void);
-    void (__cdecl *Shutdown) (void);
+    /** System management. */
+    void (*Init)     (void);
+    void (*Shutdown) (void);
+
+    /** State management. */
+    void (*Update)   (double frametime);
+
+    /** Physics API. */
+    
 } physics_export_t;

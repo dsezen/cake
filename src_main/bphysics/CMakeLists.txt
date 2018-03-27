@@ -28,7 +28,6 @@ set(SHARED_INCLUDES
 	../shared/game.h
 	../shared/q_shared.h
 	../shared/qfiles.h
-    ../shared/bphysics_shared.h
 	)
 set(SHARED_SOURCES
 	../shared/m_flash.c
@@ -36,6 +35,14 @@ set(SHARED_SOURCES
 	)
 source_group("shared" FILES ${SHARED_INCLUDES})
 source_group("shared" FILES ${SHARED_SOURCES})
+
+# shared physics code
+file(GLOB_RECURSE BPHYSICS_SHARED_INCLUDES 
+    LIST_DIRECTORIES false 
+    ../shared/bphysics/*.h
+)
+source_group("shared/bphysics" FILES ${BPHYSICS_SHARED_INCLUDES})
+MESSAGE(${BPHYSICS_SHARED_INCLUDES})
 
 # bullet code
 file(GLOB BULLET3_INCLUDES ${BULLET3_INCLUDE_DIR}/*.h)

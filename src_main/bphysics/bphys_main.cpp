@@ -64,8 +64,9 @@ btAlignedObjectArray<btCollisionShape*> collisionShapes;
 /** Subsystem management. */
 extern "C"
 {
-    void __cdecl InitPhysics(void);
-    void __cdecl ShutdownPhysics(void);
+    void InitPhysics(void);
+    void ShutdownPhysics(void);
+    void UpdatePhysics(double dt_msec);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -82,9 +83,10 @@ extern "C" Q_DLL_EXPORT physics_export_t* GetPhysicsAPI(physics_import_t* import
 {
     pi = *import;
 
-    globals.apiversion = PHYSICS_API_VERSION;
-    globals.Init = InitPhysics;
-    globals.Shutdown = ShutdownPhysics;
+    globals.apiversion  = PHYSICS_API_VERSION;
+    globals.Init        = InitPhysics;
+    globals.Shutdown    = ShutdownPhysics;
+    globals.Update      = UpdatePhysics;
 
     return &globals;
 }
@@ -98,7 +100,7 @@ extern "C" Q_DLL_EXPORT physics_export_t* GetPhysicsAPI(physics_import_t* import
  * 
  * Initializes the physics system.
  */
-extern "C" void __cdecl InitPhysics(void)
+extern "C" void InitPhysics(void)
 {
     // Allocate the default collision configuration.
     collisionConfig = new btDefaultCollisionConfiguration();
@@ -115,9 +117,6 @@ extern "C" void __cdecl InitPhysics(void)
     // Setup dynamics world
     dynamicsWorld = new btDiscreteDynamicsWorld(dispatcher, 
         overlappingPairCache, solver, collisionConfig);
-
-    // Set gravity
-    //dynamicsWorld->setGravity(btVector3(0, -10, 0));
 }
 
 /**
@@ -125,7 +124,7 @@ extern "C" void __cdecl InitPhysics(void)
  *
  * Cleans up and shuts down the physics system.
  */
-extern "C" void __cdecl ShutdownPhysics(void)
+extern "C" void ShutdownPhysics(void)
 {
 
     // Remove rigid bodies from the dynamics world
@@ -171,6 +170,31 @@ extern "C" void __cdecl ShutdownPhysics(void)
 
     //clear up shapes list
     collisionShapes.clear();
+}
+
+/**
+ * UpdatePhysics
+ *
+ * Called every frame. Runs one (or more) steps of the simulation.
+ */
+extern "C" void UpdatePhysics(double dt_msec)
+{
+    if (!dynamicsWorld)
+        return;
+
+    // Convert msec to sec
+    const double dt_sec = dt_msec * 0.001;
+
+    // -----------------------------------------------------
+    // Note: We're assuming a max of 95 fps and a min of 15.
+    // -----------------------------------------------------
+    // The preferred equation that must be satisfied is:
+    //  timeStep < maxSubSteps * fixedTimeStep.
+    //
+    // Where:
+    //  timeStep = dt_sec
+    // -----------------------------------------------------
+    dynamicsWorld->stepSimulation(dt_sec);
 }
 
 ///////////////////////////////////////////////////////////////////////////////
