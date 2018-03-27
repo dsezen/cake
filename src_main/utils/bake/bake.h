@@ -48,8 +48,6 @@ void Cmd_Skin (void);
 void Cmd_Skinsize (void);
 void FinishModel (void);
 
-void Cmd_Inverse16Table( void );
-
 void Cmd_SpriteName (void);
 void Cmd_Load (void);
 void Cmd_SpriteFrame (void);
@@ -63,11 +61,8 @@ void Cmd_Colormap (void);
 
 void Cmd_File (void);
 void Cmd_Dir (void);
-void Cmd_StartWad (void);
-void Cmd_EndWad (void);
 void Cmd_Mippal (void);
 void Cmd_Mipdir (void);
-void Cmd_Alphalight (void);
 
 void Cmd_Video (void);
 

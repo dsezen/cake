@@ -726,80 +726,65 @@ char *Sys_GetClipboardData (void)
 	return data;
 }
 
-/**
- * Sys_UnloadModule
- * Given a module handle, unloads it from the process.
- */
-qboolean Sys_UnloadModule(void* module_handle)
+/*
+=================
+Sys_GetProcAddress
+=================
+*/
+void *Sys_GetProcAddress (void *handle, const char *sym)
 {
-    if (!module_handle)
-    {
-        return false;
-    }
-
-    SDL_UnloadObject(module_handle);
-
-    return true;
+	return SDL_LoadFunction (handle, sym);
 }
 
-/**
- * Sys_LoadModule
- * Loads and returns the handle of a given module.
- */
-void* Sys_LoadModule(const char* module_name)
+/*
+=================
+Sys_FreeLibrary
+=================
+*/
+void Sys_FreeLibrary (void *handle)
 {
-    char  name[MAX_OSPATH] = { '\0' };
-    char  cwd[MAX_OSPATH] = { '\0' };
-    char* path = (char *)0;
-    void* module_handle = (void *)0;
-
-    // Write the name of the module into 'name'.
-    Com_sprintf(name, sizeof(name), "%s", module_name);
-
-    // Grab current working directory and check that first.
-    Q_getwd(cwd);
-    Com_sprintf(name, sizeof(name), "%s/%s", cwd, module_name);
-
-    // Attempt to load the module.
-    module_handle = SDL_LoadObject(name);
-    if (!module_handle)
-    {
-        // Run through search paths until we find the module.
-        path = NULL;
-        while (1)
-        {
-            path = FS_NextPath(path);
-
-            if (!path)
-                return NULL; // couldn't find one anywhere
-
-            Com_sprintf(name, sizeof(name), "%s/%s", path, module_name);
-            module_handle = SDL_LoadObject(name);
-            if (module_handle)
-            {
-                break;
-            }
-        }
-    }
-
-    return module_handle;
+	SDL_UnloadObject (handle);
 }
 
-/**
- * Sys_GetModuleProc
- * Returns the address of a procedure in a shared object file.
- */
-void* Sys_GetModuleProc(void* module_handle, const char* proc_name)
+/*
+=================
+Sys_LoadLibrary
+=================
+*/
+void *Sys_LoadLibrary (const char *path, const char *sym, void **handle)
 {
-    if (!module_handle || !proc_name || proc_name[0] == '\0')
-    {
-        Com_Error(ERR_FATAL, "Sys_GetModuleProc(%s) failed!\n", proc_name);
-        return NULL;
-    }
+	void *module, *entry;
 
-    return SDL_LoadFunction(module_handle, proc_name);
+	*handle = NULL;
+
+	module = SDL_LoadObject (path);
+	if (!module)
+	{
+		Com_Printf ("%s failed: %s\n", __func__, SDL_GetError());
+		return NULL;
+	}
+
+	if (sym)
+	{
+		entry = SDL_LoadFunction (module, sym);
+		if (!entry)
+		{
+			Com_Printf ("%s failed: %s\n", __func__, SDL_GetError());
+			Sys_FreeLibrary (module);
+			return NULL;
+		}
+	}
+	else
+	{
+		entry = NULL;
+	}
+
+	Com_DPrintf ("%s succeeded: %s\n", __func__, path);
+
+	*handle = module;
+
+	return entry;
 }
-
 
 /*
 ========================================================================
@@ -819,8 +804,7 @@ Sys_UnloadGame
 void Sys_UnloadGame (void)
 {
 #ifndef MONOLITH
-	SDL_UnloadObject(game_library);
-
+	Sys_FreeLibrary (game_library);
 	if (!game_library)
 		Com_Error (ERR_FATAL, "FreeLibrary failed for game library");
 #endif
@@ -848,9 +832,9 @@ void *Sys_GetGameAPI (void *parms)
 		Com_Error(ERR_FATAL, "Sys_GetGameAPI without Sys_UnloadingGame");
 
 	// check the current directory for other development purposes
-	Q_getwd(cwd);
-	Com_sprintf(name, sizeof(name), "%s/%s", cwd, gamename);
-	game_library = SDL_LoadObject(name);
+	Q_getwd (cwd);
+	Com_sprintf (name, sizeof(name), "%s/%s", cwd, gamename);
+	game_library = SDL_LoadObject (name);
 	if (!game_library)
 	{
 		// now run through the search paths
@@ -858,13 +842,13 @@ void *Sys_GetGameAPI (void *parms)
 
 		while (1)
 		{
-			path = FS_NextPath(path);
+			path = FS_NextPath (path);
 
 			if (!path)
 				return NULL; // couldn't find one anywhere
 
-			Com_sprintf(name, sizeof(name), "%s/%s", path, gamename);
-			game_library = SDL_LoadObject(name);
+			Com_sprintf (name, sizeof(name), "%s/%s", path, gamename);
+			game_library = SDL_LoadObject (name);
 			if (game_library)
 			{
 				break;
@@ -872,10 +856,10 @@ void *Sys_GetGameAPI (void *parms)
 		}
 	}
 
-	GetGameAPI = (void *)SDL_LoadFunction(game_library, "GetGameAPI");
+	GetGameAPI = (void *)Sys_GetProcAddress (game_library, "GetGameAPI");
 	if (!GetGameAPI)
 	{
-		Sys_UnloadGame();
+		Sys_UnloadGame ();
 		return NULL;
 	}
 

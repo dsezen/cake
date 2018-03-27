@@ -1304,30 +1304,6 @@ void CL_AddViewWeapon (player_state_t *ps, player_state_t *ops)
 
 /*
 ===============
-AdaptFov
-
-Adapt a 4:3 horizontal FOV to the current screen size using the "Hor+" scaling:
-fov = 2.0 * atan(width / height * 3.0 / 4.0 * tan(fov43 / 2.0))
-===============
-*/
-static inline float AdaptFov(float fov, float w, float h)
-{
-	static const float pi = M_PI; // float instead of double
-
-	if (!fov_adapt->value)
-		return fov;
-	if (fov < 1 || fov > 179)
-		Com_Error(ERR_DROP, "Bad fov: %f", fov);
-	if (w <= 0 || h <= 0)
-		return fov;
-	if ((h / w) == 0.75)
-		return fov;
-
-	return (atanf(tanf(fov / 360.0f * pi) * (w / h * 0.75f)) / pi * 360.0f);
-}
-
-/*
-===============
 CL_CalcViewValues
 
 Sets cl.refdef view values
@@ -1411,7 +1387,7 @@ void CL_CalcViewValues(void)
 
 	// interpolate field of view
 	ifov = ops->fov + lerp * (ps->fov - ops->fov);
-	cl.refdef.fov_x = AdaptFov(ifov, cl.refdef.width, cl.refdef.height);
+	cl.refdef.fov_x = ifov;
 
 	// don't interpolate blend color
 	for (i = 0; i < 4; i++)
@@ -1463,8 +1439,6 @@ void CL_AddEntities (void)
 	CL_AddLightStyles ();
 }
 
-
-
 /*
 ===============
 CL_GetEntitySoundOrigin
@@ -1483,4 +1457,41 @@ void CL_GetEntitySoundOrigin (int ent, vec3_t org)
 	VectorCopy (old->lerp_origin, org);
 
 	// FIXME: bmodel issues...
+}
+
+/*
+===============
+CL_GetEntitySoundVelocity
+
+Called to get the sound spatialization velocity
+===============
+*/
+void CL_GetEntitySoundVelocity (int ent, vec3_t vel)
+{
+	centity_t *old;
+
+	if ((ent < 0) || (ent >= MAX_EDICTS))
+	{
+		Com_Error(ERR_DROP, "CL_GetEntitySoundVelocity: bad ent");
+	}
+
+	old = &cl_entities[ent];
+	VectorSubtract(old->current.origin, old->prev.origin, vel);
+}
+
+/*
+===============
+CL_GetViewVelocity
+
+Called to get the velocity of the viewer
+===============
+*/
+void CL_GetViewVelocity (vec3_t vel)
+{
+	// restore value from 12.3 fixed point
+	const float scale_factor = 1.0f / 8.0f;
+
+	vel[0] = (float)cl.frame.playerstate.pmove.velocity[0] * scale_factor;
+	vel[1] = (float)cl.frame.playerstate.pmove.velocity[1] * scale_factor;
+	vel[2] = (float)cl.frame.playerstate.pmove.velocity[2] * scale_factor;
 }

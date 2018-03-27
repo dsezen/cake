@@ -28,7 +28,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 ResampleSfx
 ================
 */
-void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
+static void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
 {
 	int		outcount;
 	int		srcsample;
@@ -60,7 +60,6 @@ void ResampleSfx (sfx_t *sfx, int inrate, int inwidth, byte *data)
 	sc->stereo = 0;
 
 	// resample / decimate to the current source rate
-
 	if (stepscale == 1 && inwidth == 1 && sc->width == 1)
 	{
 		// fast special case
@@ -134,26 +133,34 @@ sfxcache_t *S_LoadSound (sfx_t *s)
 		return NULL;
 	}
 	
-	stepscale = (float) info.rate / dma.speed;
-	len = info.samples / stepscale;
-
-	len = len * info.width * info.channels;
-
-	sc = s->cache = Z_Malloc (len + sizeof (sfxcache_t));
-
-	if (!sc)
+	if (sound_started != SS_OAL)
 	{
-		Z_Free(data);
-		return NULL;
+		stepscale = (float)info.rate / dma.speed;
+		len = info.samples / stepscale;
+
+		len = len * info.width * info.channels;
+
+		sc = s->cache = Z_Malloc(len + sizeof(sfxcache_t));
+
+		if (!sc)
+		{
+			Z_Free(data);
+			return NULL;
+		}
+
+		sc->length = info.samples;
+		sc->loopstart = info.loopstart;
+		sc->speed = info.rate;
+		sc->width = info.width;
+		sc->stereo = info.channels;
 	}
 
-	sc->length = info.samples;
-	sc->loopstart = info.loopstart;
-	sc->speed = info.rate;
-	sc->width = info.width;
-	sc->stereo = info.channels;
-
-	ResampleSfx (s, sc->speed, sc->width, data + info.dataofs);
+#if USE_OPENAL
+	if (sound_started == SS_OAL)
+		sc = AL_UploadSfx (s, &info, data + info.dataofs);
+	else
+#endif
+		ResampleSfx (s, sc->speed, sc->width, data + info.dataofs);
 
 	Z_Free(data);
 

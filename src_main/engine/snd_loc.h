@@ -31,6 +31,10 @@ typedef struct
 	int 		loopstart;
 	int 		speed;			// not needed, because converted on load?
 	int 		width;
+#if USE_OPENAL
+	int         size;
+	int         bufnum;
+#endif
 	int 		stereo;
 	byte		data[1];		// variable sized
 } sfxcache_t;
@@ -79,13 +83,30 @@ typedef struct
 	int 		pos;			// sample position in sfx
 	int			looping;		// where to loop, -1 = no looping OBSOLETE?
 	int			entnum;			// to allow overriding a specific sound
-	int			entchannel;		//
+	int			entchannel;	
 	vec3_t		origin;			// only use if fixed_origin is set
 	vec_t		dist_mult;		// distance multiplier (attenuation/clipK)
 	int			master_vol;		// 0-255 master volume
 	qboolean	fixed_origin;	// use origin instead of fetching entnum's origin
 	qboolean	autosound;		// from an entity->sound, cleared each frame
+#if USE_OPENAL
+	int         autoframe;
+	int         srcnum;
+	float		oal_vol;
+#endif
 } channel_t;
+
+typedef enum
+{
+	SS_NOT = 0, // sound system not started
+	SS_DMA,     // sound system started, using DMA
+	SS_OAL      // sound system started, using OpenAL
+} sndstarted_t;
+extern sndstarted_t sound_started;
+
+// only begin attenuating sound volumes when outside the FULLVOLUME range
+#define SOUND_FULLVOLUME		1.0
+#define SOUND_LOOPATTENUATE		0.003
 
 /*
 ====================================================================
@@ -112,8 +133,29 @@ void	Snd_Memset(void* dest, const int val, const size_t count);
 
 //====================================================================
 
+#if USE_OPENAL
+
+//
+// snd_al.c
+//
+void	AL_SoundInfo (void);
+qboolean AL_Init (void);
+void	AL_Shutdown (void);
+sfxcache_t * AL_UploadSfx (sfx_t *s, struct snd_info_s *s_info, byte *data);
+void	AL_DeleteSfx (sfx_t *s);
+void	AL_StopChannel (channel_t *ch);
+void	AL_PlayChannel (channel_t *ch);
+void	AL_StopAllChannels (void);
+void	AL_Update (void);
+void	AL_RawSamples (int samples, int rate, int width, int channels, byte *data, float volume);
+
+#endif
+
+//====================================================================
+
 #define	MAX_CHANNELS			32
 extern	channel_t  channels[MAX_CHANNELS];
+extern  int		s_numchannels;
 
 extern	int		paintedtime;
 extern	int		s_rawend;
@@ -134,6 +176,8 @@ extern cvar_t	*s_khz;
 extern cvar_t	*s_show;
 extern cvar_t	*s_mixahead;
 extern cvar_t	*s_testsound;
+extern cvar_t	*s_nobgm;
+extern cvar_t	*s_ambient;
 
 void S_InitScaletable (void);
 
@@ -148,3 +192,6 @@ channel_t *S_PickChannel (int entnum, int entchannel);
 
 // spatializes a channel
 void S_Spatialize (channel_t *ch);
+
+void S_BuildSoundList (int *sounds);
+

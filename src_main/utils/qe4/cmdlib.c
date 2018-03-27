@@ -40,7 +40,7 @@ double I_FloatTime (void)
 
 	time (&t);
 
-	return t;
+	return (double)t;
 #if 0
 // more precise, less portable
 	struct timeval tp;

@@ -83,14 +83,14 @@ void SV_InitPhysProgs(void)
     // that we'll need within the engine.
 
     // load in the physics dll
-    const char* physics_module_name = LIB_PREFIX "bphysics_" ARCH LIB_SUFFIX;
-    physics_module = Sys_LoadModule(physics_module_name);
+    const char* physics_module_name = LIB_PREFIX "baseq2/bphysics_" ARCH LIB_SUFFIX;
+    Sys_LoadLibrary(physics_module_name, NULL, &physics_module);
     if (!physics_module) {
         Com_Error(ERR_FATAL, "Could not load physics module");
     }
 
     // Retrieve the physics API accessor.
-    GetPhysicsAPIFn pfnGetPhysicsAPI = (GetPhysicsAPIFn)Sys_GetModuleProc(physics_module, "GetPhysicsAPI");
+    GetPhysicsAPIFn pfnGetPhysicsAPI = (GetPhysicsAPIFn)Sys_GetProcAddress(physics_module, "GetPhysicsAPI");
     if (!pfnGetPhysicsAPI) {
         Com_Error(ERR_FATAL, "Could not get physics api");
     }
@@ -123,6 +123,6 @@ void SV_ShutdownPhysProgs(void)
     pe->Shutdown();
 
     // Unload and free library.
-    Sys_UnloadModule(physics_module);
+    Sys_FreeLibrary(physics_module);
     pe = NULL;
 }

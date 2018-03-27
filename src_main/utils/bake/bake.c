@@ -22,7 +22,6 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "bake.h"
 
-qboolean	g_compress_pak;
 qboolean	g_release;			// don't grab, copy output data to new tree
 qboolean	g_pak;				// if true, copy to pak instead of release
 char		g_releasedir[1024];	// c:\quake2\baseq2, etc
@@ -119,27 +118,6 @@ void ReleaseFile (char *filename)
 		Error ("Filename too long for pak: %s", filename);
 
 	len = LoadFile (source, (void **)&buf);
-
-	if (g_compress_pak && len < 4096*1024 )
-	{
-		cblock_t	in, out;
-		cblock_t Huffman (cblock_t in);
-
-		in.count = len;
-		in.data = buf;
-
-		out = Huffman (in);
-
-		if (out.count < in.count)
-		{
-			printf ("   compressed from %i to %i\n", in.count, out.count);
-			free (in.data);
-			buf = out.data;
-			len = out.count;
-		}
-		else
-			free (out.data);
-	}
 
 	strcpy (pf->name, filename);
 	pf->filepos = LittleLong(ftell(pakfile));
@@ -446,10 +424,6 @@ void ParseScript (void)
 			Cmd_Dir ();
 		else if (!strcmp (token, "$maps"))
 			Cmd_Maps ();
-		else if (!strcmp (token, "$alphalight"))
-			Cmd_Alphalight ();
-		else if (!strcmp (token, "$inverse16table" ))
-			Cmd_Inverse16Table();
 		else
 			Error ("bad command %s\n", token);
 	}
@@ -485,11 +459,6 @@ int main (int argc, char **argv)
 			strcpy (g_releasedir, argv[i+1]);
 			printf ("Copy output to: %s\n", g_releasedir);
 			i++;
-		}
-		else if (!strcmp(argv[i], "-compress"))
-		{
-			g_compress_pak = true;
-			printf ("Compressing pakfile\n");
 		}
 		else if (!strcmp(argv[i], "-pak"))
 		{

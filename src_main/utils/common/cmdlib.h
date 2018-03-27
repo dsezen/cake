@@ -44,13 +44,20 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #ifndef __BYTEBOOL__
 #define __BYTEBOOL__
+#ifdef __cplusplus
+typedef int qboolean;
+#else
 typedef enum {false, true} qboolean;
+#endif
 typedef unsigned char byte;
 #endif
 
+#define BIT(num)			(1ULL << (num))
+
+#define ALIGN(size, bytes)	(((size) + ((bytes) - 1)) & ~((bytes) - 1))
+
 // the dec offsetof macro doesnt work very well...
 #define myoffsetof(type,identifier) ((size_t)&((type *)0)->identifier)
-
 
 // set these before calling CheckParm
 extern int myargc;
@@ -73,7 +80,6 @@ void SetQdirFromPath (char *path);
 char *ExpandArg (char *path);	// from cmd line
 char *ExpandPath (char *path);	// from scripts
 char *ExpandPathAndArchive (char *path);
-
 
 double I_FloatTime (void);
 
@@ -108,14 +114,12 @@ int		LittleLong (int l);
 float	BigFloat (float l);
 float	LittleFloat (float l);
 
-
 char *COM_Parse (char *data);
 
 extern	char		com_token[1024];
 extern	qboolean	com_eof;
 
 char *copystring(char *s);
-
 
 void CRC_Init(unsigned short *crcvalue);
 void CRC_ProcessByte(unsigned short *crcvalue, byte data);

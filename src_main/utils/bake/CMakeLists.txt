@@ -10,7 +10,6 @@ set(BAKE_SOURCES
 	./models.c
 	./bake.c
 	./sprites.c
-	./tables.c
 	./video.c
 	)
 source_group("bake" FILES ${BAKE_INCLUDES})
@@ -41,6 +40,29 @@ set(COMMON_SOURCES
 source_group("common" FILES ${COMMON_INCLUDES})
 source_group("common" FILES ${COMMON_SOURCES})
 
+set(ROQ_INCLUDES
+	./roq/audio.h
+	./roq/codebook.h
+	./roq/common.h
+	./roq/elbg.h
+	./roq/random.h
+	./roq/roq.h
+	./roq/video.h
+	./roq_encoder.h
+	)
+set(ROQ_SOURCES
+	./roq/audio.cpp
+	./roq/codebook.cpp
+	./roq/common.cpp
+	./roq/elbg.cpp
+	./roq/random.cpp
+	./roq/video.cpp
+	./roq_encoder.cpp
+	)
+source_group("roq" FILES ${ROQ_INCLUDES})
+source_group("roq" FILES ${ROQ_SOURCES})
+
+
 
 #
 # BAKE tool
@@ -53,7 +75,7 @@ include_directories(
 	)
 
 # build it
-add_executable(bake ${BAKE_INCLUDES} ${BAKE_SOURCES} ${COMMON_INCLUDES} ${COMMON_SOURCES})
+add_executable(bake ${BAKE_INCLUDES} ${BAKE_SOURCES} ${COMMON_INCLUDES} ${COMMON_SOURCES} ${ROQ_INCLUDES} ${ROQ_SOURCES})
 
 q_set_output_dir(bake ${Q_UTILS_DIR})
 install(TARGETS bake RUNTIME DESTINATION ${Q_UTILS_DIR})
