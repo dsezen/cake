@@ -188,6 +188,7 @@ qboolean R_CheckFBO(const FBO_t * fbo);
 void R_BindNullFBO(void);
 void R_BindFBO(FBO_t * fbo);
 
+extern FBO_t *basicRenderFBO;
 extern FBO_t *hdrRenderFBO;
 extern FBO_t *hdrDownscale64;
 extern FBO_t *brightpassRenderFBO;
@@ -341,7 +342,6 @@ void Draw_End2D (void);
 
 void RE_GL_BeginFrame (float camera_separation);
 void RE_GL_EndFrame (void);
-void RE_GL_SetPalette (const unsigned char *palette);
 
 void RE_GL_BeginRegistration(char *model);
 struct model_s *RE_GL_RegisterModel(char *name);

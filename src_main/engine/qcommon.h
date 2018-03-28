@@ -348,8 +348,6 @@ then searches for a command or variable that matches the first token.
 
 */
 
-typedef void (*xcommand_t) (void);
-
 void	Cmd_Init (void);
 
 void	Cmd_AddCommand (char *cmd_name, xcommand_t function);
@@ -363,9 +361,8 @@ void	Cmd_RemoveCommand (char *cmd_name);
 qboolean Cmd_Exists (char *cmd_name);
 // used by the cvar code to check for cvar / command name overlap
 
-char 	*Cmd_CompleteCommand (char *partial);
+void	Cmd_CommandCompletion(void(*callback)(char *s));
 // attempts to match a partial command for automatic command line completion
-// returns NULL if nothing fits
 
 int		Cmd_Argc (void);
 char	*Cmd_Argv (int arg);
@@ -435,9 +432,8 @@ int		Cvar_VariableInteger(char *var_name);
 char	*Cvar_VariableString (char *var_name);
 // returns an empty string if not defined
 
-char 	*Cvar_CompleteVariable (char *partial);
+void	Cvar_CommandCompletion(void(*callback)(char *s));
 // attempts to match a partial variable name for command line completion
-// returns NULL if nothing fits
 
 void	Cvar_GetLatchedVars (void);
 // any CVAR_LATCHED variables that have been set will now take effect
@@ -653,7 +649,7 @@ int		FS_LoadFile (char *path, void **buffer);
 // a null buffer will just return the file length without loading
 // a -1 length is not present
 
-void	FS_Read (void *buffer, int len, FILE *f);
+int		FS_Read (void *buffer, int len, FILE *f);
 // properly handles partial reads
 
 void	FS_FreeFile (void *buffer);
@@ -661,6 +657,12 @@ void	FS_FreeFile (void *buffer);
 void	FS_CreatePath (char *path);
 
 qboolean FS_ExistsInGameDir(char *filename);
+
+void	FS_ConvertPath(char *s);
+// converts dos path to unix path
+
+void FS_FilenameCompletion (char *dir, char *ext, qboolean stripExt, void(*callback)(char *s));
+// allows command completion for functions that open files, like maps, demos, etc
 
 /* The following FS_*() stdio replacements are necessary if one is
 * to perform non-sequential reads on files reopened on pak files
@@ -768,6 +770,7 @@ void	Sys_Quit         (void);
 void	*Sys_GetProcAddress (void *handle, const char *sym);
 void	Sys_FreeLibrary (void *handle);
 void	*Sys_LoadLibrary (const char *path, const char *sym, void **handle);
+// loads any library, path is absolute
 
 /** loads the game dll and calls the api init function */
 void	Sys_UnloadGame (void);

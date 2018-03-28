@@ -470,9 +470,7 @@ RE_Draw_FadeScreen
 */
 void RE_GL_Draw_FadeScreen (void)
 {
-	extern qboolean r_skippost;
-
-	if (r_skippost || !r_postprocessing->value)
+	if (!r_postprocessing->value)
 	{
 		Draw_ColouredRect (0, 0, vid.width, vid.height, 0xcc000000);
 	}
@@ -491,8 +489,6 @@ void RE_GL_Draw_FadeScreen (void)
 RE_Draw_StretchRaw
 =============
 */
-extern unsigned	r_rawpalette[256];
-
 void RE_GL_Draw_StretchRaw (int x, int y, int w, int h, int cols, int rows, byte *data)
 {
 	Draw_End2D ();
@@ -511,13 +507,10 @@ void RE_GL_Draw_StretchRaw (int x, int y, int w, int h, int cols, int rows, byte
 	}
 
 	// update the texture
-	GL_Image8To32 (data, (unsigned *) Scratch_Alloc (), rows * cols, r_rawpalette);
-	glTextureSubImage2DEXT (r_rawtexture, GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, Scratch_Alloc ());
+	glTextureSubImage2DEXT (r_rawtexture, GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data);
 
 	Draw_TexturedRect (r_rawtexture, r_drawclampsampler, x, y, w, h, 0, 0, 1, 1);
 
 	// hack
 	Draw_End2D ();
 }
-
-

@@ -132,48 +132,6 @@ void FS_FCloseFile (FILE *f)
 	fclose (f);
 }
 
-
-// RAFAEL
-/*
-	Developer_searchpath
-*/
-int	Developer_searchpath (int who)
-{
-
-	int		ch;
-	// PMM - warning removal
-	//	char	*start;
-	searchpath_t	*search;
-
-	if (who == 1) // xatrix
-		ch = 'x';
-	else if (who == 2)
-		ch = 'r';
-
-	for (search = fs_searchpaths; search; search = search->next)
-	{
-		if (strstr (search->filename, "xatrix"))
-			return 1;
-
-		if (strstr (search->filename, "rogue"))
-			return 2;
-
-		/*
-				start = strchr (search->filename, ch);
-
-				if (start == NULL)
-					continue;
-
-				if (strcmp (start, "xatrix") == 0)
-					return (1);
-		*/
-	}
-
-	return (0);
-
-}
-
-
 /*
 ===========
 FS_FOpenFile
@@ -258,7 +216,6 @@ int FS_FOpenFile (char *filename, FILE **file)
 			Com_sprintf (netpath, sizeof (netpath), "%s/%s", search->filename, filename);
 
 			*file = fopen (netpath, "rb");
-
 			if (!*file)
 				continue;
 
@@ -283,36 +240,41 @@ Properly handles partial reads
 =================
 */
 #define	MAX_READ	0x10000		// read in blocks of 64k
-void FS_Read (void *buffer, int len, FILE *f)
+int FS_Read (void *buffer, int len, FILE *f)
 {
-	int		block, remaining;
+	size_t	block, total;
 	int		read;
 	byte	*buf;
 
+	if (!len || !buffer)
+		return 0;
+
 	buf = (byte *) buffer;
 
-	// read in chunks for progress bar
-	remaining = len;
-
-	while (remaining)
+	// read in chunks
+	total = 0;
+	do
 	{
-		block = remaining;
-
-		if (block > MAX_READ)
-			block = MAX_READ;
+		block = min (len, MAX_READ);
 
 		read = fread (buf, 1, block, f);
-
 		if (read == 0)
-			Com_Error (ERR_FATAL, "FS_Read: 0 bytes read");
-		if (read == -1)
-			Com_Error (ERR_FATAL, "FS_Read: -1 bytes read");
+		{
+			// try again
+			read = fread (buf, 1, block, f);
+			if (read == 0)
+				read = -1;
+		}
 
-		// do some progress bar thing here...
+//		if (read == -1)
+//			Com_Error (ERR_FATAL, "FS_Read: could not read %i bytes", block);
 
-		remaining -= read;
-		buf += read;
-	}
+		len -= block;
+		buf += block;
+		total += block;
+	} while (len > 0);
+
+	return total;
 }
 
 /*
@@ -809,6 +771,71 @@ qboolean FS_ExistsInGameDir(char *filename)
 	return false;
 }
 
+/*
+===========
+FS_ConvertPath
+===========
+*/
+void FS_ConvertPath(char *s)
+{
+	while (*s)
+	{
+		if (*s == '\\' || *s == ':')
+			*s = '/';
+		s++;
+	}
+}
+
+static void FS_FreeFileList(char **list, int n)
+{
+	int i;
+
+	for (i = 0; i < n; i++)
+	{
+		if (list[i])
+		{
+			free(list[i]);
+			list[i] = 0;
+		}
+	}
+
+	free(list);
+}
+
+/*
+===========
+FS_FilenameCompletion
+===========
+*/
+void FS_FilenameCompletion(char *dir, char *ext, qboolean stripExt, void(*callback)(char *s))
+{
+	char	**filenames = NULL;
+	int		nfiles;
+	int		i;
+	char	path[MAX_STRING_CHARS];
+	char	filename[MAX_STRING_CHARS];
+
+	strcpy(path, va("%s/%s/*.%s", fs_gamedir, dir, ext));
+	filenames = FS_ListFiles(path, &nfiles);
+
+	for (i = 0; i < nfiles; i++)
+	{
+		if (filenames[i] == 0)
+			continue;
+
+		FS_ConvertPath(filenames[i]);
+		Q_strlcpy(filename, filenames[i], MAX_STRING_CHARS);
+
+		strcpy(filename, COM_StripPathFromFilename(filename));
+
+		if (stripExt)
+			COM_StripExtensionSafe(filename, filename, sizeof(filename));
+
+		callback(filename);
+	}
+
+	FS_FreeFileList(filenames, nfiles);
+}
 
 /* The following FS_*() stdio replacements are necessary if one is
 * to perform non-sequential reads on files reopened on pak files

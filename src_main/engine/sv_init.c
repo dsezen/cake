@@ -151,15 +151,15 @@ void SV_CheckForSavegame (void)
 		// rlava2 was sending too many lightstyles, and overflowing the
 		// reliable data. temporarily changing the server state to loading
 		// prevents these from being passed down.
-		server_state_t		previousState;		// PGM
+		server_state_t previousState;
 
-		previousState = sv.state;				// PGM
-		sv.state = ss_loading;					// PGM
+		previousState = sv.state;
+		sv.state = ss_loading;
 
 		for (i = 0; i < 100; i++)
 			ge->RunFrame ();
 
-		sv.state = previousState;				// PGM
+		sv.state = previousState;
 	}
 }
 
@@ -441,7 +441,7 @@ void SV_Map (qboolean attractloop, char *levelstring, qboolean loadgame)
 		strcpy (level, level + 1);
 
 	l = strlen (level);
-	if (l > 4 && !strcmp (level + l - 4, ".cin"))
+	if (l > 4 && !strcmp (level + l - 4, ".roq") || l > 4 && !strcmp(level + l - 4, ".cin"))
 	{
 		SCR_BeginLoadingPlaque ();			// for local system
 		SV_BroadcastCommand ("changing\n");
