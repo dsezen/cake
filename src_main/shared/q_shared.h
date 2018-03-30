@@ -233,7 +233,7 @@ void COM_StripExtensionSafe (const char *in, char *out, int destsize);
 char *COM_StripPathFromFilename (const char *in);
 char *COM_FileExtension (char *in);
 void COM_FileBase (char *in, char *out);
-void COM_FilePath (char *in, char *out);
+void COM_FilePath (const char *path, char *dst, int dstSize);
 void COM_DefaultExtension (char *path, char *extension);
 
 char *COM_Parse (char **data_p);
@@ -937,6 +937,7 @@ typedef enum
 #define	CS_SKYAXIS			3		// %f %f %f format
 #define	CS_SKYROTATE		4
 #define	CS_STATUSBAR		5		// display program string
+#define	CS_FOG				6		// %f %f %f %f format (r,g,b and then density)
 
 #define CS_AIRACCEL			29		// air acceleration control
 #define	CS_MAXCLIENTS		30

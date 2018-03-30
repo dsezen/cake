@@ -28,14 +28,29 @@ GLuint gl_fxaaprog = 0;
 GLuint u_fxaaTexScale = 0;
 
 GLuint gl_underwaterprog = 0;
+GLuint u_uwTexScale = 0;
 GLuint u_uwwarpparams = 0;
 GLuint u_uwsurfcolor = 0;
 GLuint u_uwgamma = 0;
+GLuint u_uwwaterwarp = 0;
+GLuint u_uwBrightnessContrastAmount = 0;
 
 GLuint gl_compositeprog = 0;
 GLuint u_compositeTexScale = 0;
 GLuint u_compositeMode = 0;
 GLuint u_compositeBrightParam = 0;
+
+GLuint gl_globalfogprog = 0;
+GLuint u_globalfogTexScale = 0;
+GLuint u_globalfogViewOrigin = 0;
+GLuint u_globalfogColorDensity = 0;
+GLuint u_globalfogUnprojectMatrix = 0;
+vec3_t post_fogColor;
+float post_fogDensity = 0.0f;
+
+qboolean r_fogwater = false;
+qboolean r_foglava = false;
+qboolean r_fogslime = false;
 
 GLuint gl_postprog = 0;
 GLuint u_postsurfcolor = 0;
@@ -253,6 +268,18 @@ void RPostProcess_CreatePrograms(void)
 	u_compositeTexScale = glGetUniformLocation(gl_compositeprog, "texScale");
 	u_compositeBrightParam = glGetUniformLocation(gl_compositeprog, "brightParam");
 
+	// create global fog shader
+	gl_globalfogprog = GL_CreateShaderFromName("glsl/globalFog.glsl", "GlobalFogVS", "GlobalFogFS");
+
+	glProgramUniform1i(gl_globalfogprog, glGetUniformLocation(gl_globalfogprog, "diffuse"), 0);
+	glProgramUniform1i(gl_globalfogprog, glGetUniformLocation(gl_globalfogprog, "depth"), 1);
+	glProgramUniformMatrix4fv(gl_globalfogprog, glGetUniformLocation(gl_globalfogprog, "orthomatrix"), 1, GL_FALSE, r_drawmatrix.m[0]);
+
+	u_globalfogTexScale = glGetUniformLocation(gl_globalfogprog, "texScale");
+	u_globalfogViewOrigin = glGetUniformLocation(gl_globalfogprog, "viewOrigin");
+	u_globalfogColorDensity = glGetUniformLocation(gl_globalfogprog, "fogColorDensity");
+	u_globalfogUnprojectMatrix = glGetUniformLocation(gl_globalfogprog, "unprojectmatrix");
+
 	// create barebones shaders
 	if (r_skipHDRPost)
 	{
@@ -260,6 +287,9 @@ void RPostProcess_CreatePrograms(void)
 
 		u_uwwarpparams = glGetUniformLocation(gl_underwaterprog, "warpparams");
 		u_uwsurfcolor = glGetUniformLocation(gl_underwaterprog, "surfcolor");
+		u_uwwaterwarp = glGetUniformLocation(gl_underwaterprog, "waterwarppost");
+		u_uwTexScale = glGetUniformLocation(gl_underwaterprog, "texScale");
+		u_uwBrightnessContrastAmount = glGetUniformLocation(gl_underwaterprog, "brightnessContrastAmount");
 
 		glProgramUniform1i(gl_underwaterprog, glGetUniformLocation(gl_underwaterprog, "diffuse"), 0);
 		glProgramUniform1i(gl_underwaterprog, glGetUniformLocation(gl_underwaterprog, "gradient"), 1);
@@ -354,6 +384,9 @@ void RPostProcess_ComputeShader_CalculateLuminance(void)
 static void RPostProcess_SetCurrentRender(void)
 {
 	GL_BindTexture(GL_TEXTURE0, GL_TEXTURE_2D, r_drawnearestclampsampler, r_currentRenderImage);
+	glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, vid.width, vid.height);
+
+	GL_BindTexture(GL_TEXTURE0, GL_TEXTURE_2D, r_drawnearestclampsampler, r_currentDepthRenderImage);
 	glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, vid.width, vid.height);
 }
 
@@ -560,6 +593,9 @@ void RPostProcess_FXAA(void)
 void RPostProcess_MenuBackground(void)
 {
 	vec2_t texScale;
+
+	// reset current render image
+	RPostProcess_SetCurrentRender();
 	
 	// set screen scale
 	texScale[0] = 1.0f / vid.width;
@@ -578,12 +614,14 @@ void RPostProcess_MenuBackground(void)
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
 
-void RPostProcess_BasicUnderwater(void)
+void RPostProcess_BasicPostProcess(void)
 {
 	float warpparams[4];
+	vec2_t texScale;
 
-	if (!r_dowaterwarppost)
-		return;
+	// set screen scale
+	texScale[0] = 1.0f / vid.width;
+	texScale[1] = 1.0f / vid.height;
 
 	// set warp settings
 	warpparams[0] = r_newrefdef.time * (128.0 / M_PI);
@@ -591,21 +629,90 @@ void RPostProcess_BasicUnderwater(void)
 	warpparams[2] = M_PI / 128.0;
 	warpparams[3] = 0.125f;
 
+	glProgramUniform2f(gl_underwaterprog, u_uwTexScale, texScale[0], texScale[1]);
 	glProgramUniform4fv(gl_underwaterprog, u_uwwarpparams, 1, warpparams);
+	if (r_dowaterwarppost)
+		glProgramUniform1i(gl_underwaterprog, u_uwwaterwarp, 1);
+	else
+		glProgramUniform1i(gl_underwaterprog, u_uwwaterwarp, 0);
 
 	if (v_blend[3])
 		glProgramUniform4f(gl_underwaterprog, u_uwsurfcolor, v_blend[0], v_blend[1], v_blend[2], v_blend[3]);
 	else
 		glProgramUniform4f(gl_underwaterprog, u_uwsurfcolor, 0, 0, 0, 0);
 
-	GL_Enable(0);
+	// set brightness and contrast levels
+	glProgramUniform2f(gl_underwaterprog, u_uwBrightnessContrastAmount, vid_gamma->value, vid_contrast->value);
 
-	GL_BindTexture(GL_TEXTURE0, GL_TEXTURE_2D, r_drawclampsampler, r_currentRenderImage);
+	GL_Enable(BLEND_BIT);
+
+	GL_BindTexture(GL_TEXTURE0, GL_TEXTURE_2D, r_drawnearestclampsampler, r_currentRenderImage);
 	GL_BindTexture(GL_TEXTURE1, GL_TEXTURE_2D, r_drawwrapsampler, r_warpGradientImage);
 
 	GL_BindVertexArray(r_postvao);
 	GL_UseProgram(gl_underwaterprog);
 
+	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+}
+
+void RE_GL_SetFog(vec4_t fog)
+{
+	// check values fog color and density values
+	if (gl_forcefog->value <= 0 && VectorLength(post_fogColor) <= 0)
+		return;
+	if (gl_forcefog->value <= 0 && post_fogDensity <= 0)
+		return;
+
+	VectorCopy(fog, post_fogColor);
+	post_fogDensity = fog[3];
+}
+
+void RPostProcess_GlobalFog(void)
+{
+	vec2_t texScale;
+	glmatrix unprojectionmatrix;
+
+	if (r_nofog->integer)
+		return;
+	if (!gl_forcefog->value && !r_dowaterwarppost)
+		return;
+
+	// set screen scale
+	texScale[0] = 1.0f / vid.width;
+	texScale[1] = 1.0f / vid.height;
+
+	// create a matrix with similar functionality like gluUnproject, project from window space to world space
+	GL_LoadMatrix(&unprojectionmatrix, &r_mvpmatrix);
+	GL_InvertMatrix(&unprojectionmatrix, NULL, &unprojectionmatrix);
+	GL_TranslateMatrix(&unprojectionmatrix, -1.0, -1.0, -1.0);
+	GL_ScaleMatrix(&unprojectionmatrix, 2.0 * texScale[0], 2.0 * texScale[1], 2.0);
+
+	GL_Enable(!DEPTHTEST_BIT | !CULLFACE_BIT);
+
+	GL_UseProgram(gl_globalfogprog);
+
+	glProgramUniform2f(gl_globalfogprog, u_globalfogTexScale, texScale[0], texScale[1]);
+	glProgramUniform3f(gl_globalfogprog, u_globalfogViewOrigin, r_origin[0], r_origin[1], r_origin[2]);
+	if (r_dowaterwarppost && r_fogwater)
+		glProgramUniform4f(gl_globalfogprog, u_globalfogColorDensity, 0.3, 0.55, 1.0, 0.0008);
+	else if (r_dowaterwarppost && r_foglava)
+		glProgramUniform4f(gl_globalfogprog, u_globalfogColorDensity, 1.0, 0.3, 0.3, 0.007);
+	else if (r_dowaterwarppost && r_fogslime)
+		glProgramUniform4f(gl_globalfogprog, u_globalfogColorDensity, 0.3, 1.0, 0.3, 0.007);
+	else if (gl_forcefog->value)
+		glProgramUniform4f(gl_globalfogprog, u_globalfogColorDensity, 0.3, 0.3, 0.3, gl_forcefog->value);
+	else
+		glProgramUniform4f(gl_globalfogprog, u_globalfogColorDensity, post_fogColor[0], post_fogColor[1], post_fogColor[2], post_fogDensity);
+
+	glProgramUniformMatrix4fv(gl_globalfogprog, u_globalfogUnprojectMatrix, 1, GL_FALSE, unprojectionmatrix.m[0]);
+
+	if (r_skipHDRPost)
+		GL_BindTexture(GL_TEXTURE0, GL_TEXTURE_2D, r_drawnearestclampsampler, r_currentRenderImage);
+	else
+		GL_BindTexture(GL_TEXTURE0, GL_TEXTURE_2D, r_drawnearestclampsampler, r_currentRenderHDRImage);
+	GL_BindTexture(GL_TEXTURE1, GL_TEXTURE_2D, r_drawnearestclampsampler, r_currentDepthRenderImage);
+
+	GL_BindVertexArray(r_postvao);
 	glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
 }
 
@@ -616,19 +723,29 @@ void RPostProcess_Begin(void)
 	if (!r_postprocessing->value) return;
 	if (!r_worldmodel) return;
 	if (r_newrefdef.rdflags & RDF_NOWORLDMODEL) return;
+
+	r_fogwater = false;
+	r_foglava = false;
+	r_fogslime = false;
 	
 	// see if we are underwater 
 	leaf = Mod_PointInLeaf(r_origin, r_worldmodel);
 	if ((leaf->contents & CONTENTS_WATER) || (leaf->contents & CONTENTS_LAVA) || (leaf->contents & CONTENTS_SLIME))
 	{
 		r_dowaterwarppost = true;
+		if (leaf->contents & CONTENTS_WATER)
+			r_fogwater = true;
+		else if (leaf->contents & CONTENTS_LAVA)
+			r_foglava = true;
+		else if (leaf->contents & CONTENTS_SLIME)
+			r_fogslime = true;
 	}
 	else
 	{
 		r_dowaterwarppost = false;
 	}
 
-	if (r_skipHDRPost && r_dowaterwarppost)
+	if (r_skipHDRPost)
 	{
 		// bind basic framebuffer object
 		R_BindFBO(basicRenderFBO);
@@ -637,7 +754,7 @@ void RPostProcess_Begin(void)
 		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		GL_Clear(GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
 	}
-	else if (!r_skipHDRPost)
+	else
 	{
 		// bind HDR framebuffer object
 		R_BindFBO(hdrRenderFBO);
@@ -662,6 +779,9 @@ void RPostProcess_FinishToScreen(void)
 		// perform screenspace ambient occlusion
 		RPostProcess_SSAO();
 
+		// perform global fog pass
+		RPostProcess_GlobalFog();
+
 		// downscale to 64x64
 		RPostProcess_DownscaleTo64();
 
@@ -683,11 +803,14 @@ void RPostProcess_FinishToScreen(void)
 	{
 		// perform basic post processing
 
-		// perform underwater screen warp
-		RPostProcess_BasicUnderwater();
+		// perform basic underwater screen warp, gamma and brightness
+		RPostProcess_BasicPostProcess();
+
+		// perform global fog pass
+		RPostProcess_GlobalFog();
 	}
 
-	// set currentrender image for other effects
+	// set currentrender image
 	RPostProcess_SetCurrentRender();
 
 	// perform FXAA pass

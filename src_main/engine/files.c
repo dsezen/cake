@@ -52,7 +52,6 @@ char	fs_gamedir[MAX_OSPATH];
 cvar_t	*fs_basedir;
 cvar_t	*fs_gamedirvar;
 
-
 typedef struct searchpath_s
 {
 	char	filename[MAX_OSPATH];
@@ -63,18 +62,50 @@ typedef struct searchpath_s
 searchpath_t	*fs_searchpaths;
 searchpath_t	*fs_base_searchpaths;	// without gamedirs
 
-
 /*
 
 All of Quake's data access is through a hierchal file system, but the contents of the file system can be transparently merged from several sources.
 
-The "base directory" is the path to the directory holding the quake.exe and all game directories. The sys_* files pass this to host_init in quakeparms_t->basedir. This can be overridden with the "-basedir" command line parm to allow code debugging in a different directory. The base directory is
-only used during filesystem initialization.
+The "base directory" is the path to the directory holding the quake.exe and all game directories. The sys_* files pass this to host_init in quakeparms_t->basedir.
+This can be overridden with the "-basedir" command line parm to allow code debugging in a different directory. The base directory is only used during filesystem
+initialization.
 
-The "game directory" is the first tree on the search path and directory that all generated files (savegames, screenshots, demos, config files) will be saved to. This can be overridden with the "-game" command line parameter. The game directory can never be changed while quake is executing. This is a precacution against having a malicious server instruct clients to write files over areas they shouldn't.
+The "game directory" is the first tree on the search path and directory that all generated files (savegames, screenshots, demos, config files) will be saved to.
+This can be overridden with the "-game" command line parameter. The game directory can never be changed while quake is executing. This is a precacution against
+having a malicious server instruct clients to write files over areas they shouldn't.
 
 */
 
+/*
+============
+COM_FilePath
+
+Returns the path up to, but not including the last /
+============
+*/
+void COM_FilePath(const char *path, char *dst, int dstSize)
+{
+	char *pos;
+
+	if ((pos = strrchr(path, '/')) != NULL)
+	{
+		pos--;
+		if ((pos - path) < dstSize)
+		{
+			memcpy(dst, path, pos - path);
+			dst[pos - path] = '\0';
+		}
+		else
+		{
+			Com_Printf("Com_FilePath: not enough space.\n");
+			return;
+		}
+	}
+	else
+	{
+		strncpy(dst, path, dstSize);
+	}
+}
 
 /*
 ================
@@ -104,20 +135,45 @@ Creates any directories needed to store the given filename
 */
 void FS_CreatePath (char *path)
 {
-	char	*ofs;
+	char *cur;
+	char *old;
 
-	for (ofs = path + 1; *ofs; ofs++)
+	if (strstr(path, "..") != NULL)
 	{
-		if (*ofs == '/')
+		Com_Printf("WARNING: refusing to create relative path '%s'.\n", path);
+		return;
+	}
+
+	cur = old = path;
+	while (cur != NULL)
+	{
+		if ((cur - old) > 1)
 		{
 			// create the directory
-			*ofs = 0;
+			*cur = '\0';
 			Sys_Mkdir (path);
-			*ofs = '/';
+			*cur = '/';
 		}
+		old = cur;
+		cur = strchr(old + 1, '/');
 	}
 }
 
+
+/*
+============
+FS_Gamedir
+
+Called to find where to write a file (demos, savegames, etc)
+============
+*/
+char *FS_Gamedir(void)
+{
+	if (*fs_gamedir)
+		return fs_gamedir;
+	else
+		return BASEDIRNAME;
+}
 
 /*
 ==============
@@ -127,9 +183,9 @@ For some reason, other dll's can't just cal fclose()
 on files returned by FS_FOpenFile...
 ==============
 */
-void FS_FCloseFile (FILE *f)
+void FS_FCloseFile(FILE *f)
 {
-	fclose (f);
+	fclose(f);
 }
 
 /*
@@ -190,6 +246,11 @@ int FS_FOpenFile (char *filename, FILE **file)
 		{
 			packfile_t *found = NULL;
 
+			// HACK: for maps.lst and players/, we do not want to search the pak, as most player
+			// models are stored outside the pak and id put an updated maps.lst outside the paks in the 3.14 update
+			if ((strcmp(filename, "maps.lst") == 0) || (strncmp(filename, "players/", 8) == 0))
+				continue;
+
 			// look through all the pak file elements
 			pak = search->pack;
 
@@ -230,7 +291,6 @@ int FS_FOpenFile (char *filename, FILE **file)
 	*file = NULL;
 	return -1;
 }
-
 
 /*
 =================
@@ -320,7 +380,6 @@ int FS_LoadFile (char *path, void **buffer)
 	return len;
 }
 
-
 /*
 =============
 FS_FreeFile
@@ -328,6 +387,11 @@ FS_FreeFile
 */
 void FS_FreeFile (void *buffer)
 {
+	if (buffer == NULL)
+	{
+		Com_DPrintf("FS_FreeFile: NULL buffer.\n");
+		return;
+	}
 	free (buffer);
 }
 
@@ -442,271 +506,6 @@ void FS_AddGameDirectory (char *dir)
 		search->next = fs_searchpaths;
 		fs_searchpaths = search;
 	}
-
-
-}
-
-/*
-============
-FS_Gamedir
-
-Called to find where to write a file (demos, savegames, etc)
-============
-*/
-char *FS_Gamedir (void)
-{
-	if (*fs_gamedir)
-		return fs_gamedir;
-	else
-		return BASEDIRNAME;
-}
-
-/*
-================
-FS_SetGamedir
-
-Sets the gamedir and path to a different directory.
-================
-*/
-void FS_SetGamedir (char *dir)
-{
-	searchpath_t	*next;
-
-	if (strstr (dir, "..") || strstr (dir, "/") || strstr (dir, "\\") || strstr (dir, ":"))
-	{
-		Com_Printf ("Gamedir should be a single filename, not a path\n");
-		return;
-	}
-
-	//
-	// free up any current game dir info
-	//
-	while (fs_searchpaths != fs_base_searchpaths)
-	{
-		if (fs_searchpaths->pack)
-		{
-			fclose (fs_searchpaths->pack->handle);
-			Z_Free (fs_searchpaths->pack->files);
-			Z_Free (fs_searchpaths->pack);
-		}
-
-		next = fs_searchpaths->next;
-		Z_Free (fs_searchpaths);
-		fs_searchpaths = next;
-	}
-
-	//
-	// flush all data, so it will be forced to reload
-	//
-	if (dedicated && !dedicated->value)
-		Cbuf_AddText ("vid_restart\nsnd_restart\n");
-
-	Com_sprintf (fs_gamedir, sizeof (fs_gamedir), "%s/%s", fs_basedir->string, dir);
-
-	if (!strcmp (dir, BASEDIRNAME) || (*dir == 0))
-	{
-		Cvar_FullSet ("gamedir", "", CVAR_SERVERINFO | CVAR_NOSET);
-		Cvar_FullSet ("game", "", CVAR_LATCH | CVAR_SERVERINFO);
-	}
-	else
-	{
-		Cvar_FullSet ("gamedir", dir, CVAR_SERVERINFO | CVAR_NOSET);
-
-		FS_AddGameDirectory (va ("%s/%s", fs_basedir->string, dir));
-	}
-}
-
-
-/*
-FS_ListFiles
-*/
-char **FS_ListFiles (char *findname, int *numfiles)
-{
-	char *s;
-	int nfiles = 0;
-	char **list = 0;
-
-	s = Sys_FindFirst (findname);
-
-	while (s)
-	{
-		if (s[strlen (s)-1] != '.')
-			nfiles++;
-
-		s = Sys_FindNext ();
-	}
-
-	Sys_FindClose ();
-
-	if (!nfiles)
-		return NULL;
-
-	nfiles++; // add space for a guard
-	*numfiles = nfiles;
-
-	list = malloc (sizeof (char *) * nfiles);
-	memset (list, 0, sizeof (char *) * nfiles);
-
-	s = Sys_FindFirst (findname);
-	nfiles = 0;
-
-	while (s)
-	{
-		if (s[strlen (s)-1] != '.')
-		{
-			list[nfiles] = strdup (s);
-#ifdef _WIN32
-			Q_strlwr (list[nfiles]);
-#endif
-			nfiles++;
-		}
-
-		s = Sys_FindNext ();
-	}
-
-	Sys_FindClose ();
-
-	return list;
-}
-
-/*
-FS_Dir_f
-*/
-void FS_Dir_f (void)
-{
-	char	*path = NULL;
-	char	findname[1024];
-	char	wildcard[1024] = "*.*";
-	char	**dirnames;
-	int		ndirs;
-
-	if (Cmd_Argc() != 1)
-	{
-		strcpy (wildcard, Cmd_Argv (1));
-	}
-
-	while ((path = FS_NextPath (path)) != NULL)
-	{
-		char *tmp = findname;
-
-		Com_sprintf (findname, sizeof (findname), "%s/%s", path, wildcard);
-
-		while (*tmp != 0)
-		{
-			if (*tmp == '\\')
-				*tmp = '/';
-
-			tmp++;
-		}
-
-		Com_Printf ("Directory of %s\n", findname);
-		Com_Printf ("----\n");
-
-		if ((dirnames = FS_ListFiles (findname, &ndirs)) != 0)
-		{
-			int i;
-
-			for (i = 0; i < ndirs - 1; i++)
-			{
-				if (strrchr (dirnames[i], '/'))
-					Com_Printf ("%s\n", strrchr (dirnames[i], '/') + 1);
-				else
-					Com_Printf ("%s\n", dirnames[i]);
-
-				free (dirnames[i]);
-			}
-
-			free (dirnames);
-		}
-
-		Com_Printf ("\n");
-	};
-}
-
-/*
-============
-FS_Path_f
-
-============
-*/
-void FS_Path_f (void)
-{
-	searchpath_t	*s;
-
-	Com_Printf ("Current search path:\n");
-
-	for (s = fs_searchpaths; s; s = s->next)
-	{
-		if (s == fs_base_searchpaths)
-			Com_Printf ("----------\n");
-
-		if (s->pack)
-			Com_Printf ("%s (%i files)\n", s->pack->filename, s->pack->numfiles);
-		else Com_Printf ("%s\n", s->filename);
-	}
-}
-
-/*
-================
-FS_NextPath
-
-Allows enumerating all of the directories in the search path
-================
-*/
-char *FS_NextPath (char *prevpath)
-{
-	searchpath_t	*s;
-	char			*prev;
-
-	if (!prevpath)
-		return fs_gamedir;
-
-	prev = fs_gamedir;
-
-	for (s = fs_searchpaths; s; s = s->next)
-	{
-		if (s->pack)
-			continue;
-
-		if (prevpath == prev)
-			return s->filename;
-
-		prev = s->filename;
-	}
-
-	return NULL;
-}
-
-
-/*
-================
-FS_InitFilesystem
-================
-*/
-void FS_InitFilesystem (void)
-{
-	Cmd_AddCommand ("path", FS_Path_f);
-	Cmd_AddCommand ("dir", FS_Dir_f);
-
-	//
-	// basedir <path>
-	// allows the game to run from outside the data tree
-	//
-	fs_basedir = Cvar_Get ("basedir", ".", CVAR_NOSET);
-
-	//
-	// start up with baseq2 by default
-	//
-	FS_AddGameDirectory (va ("%s/"BASEDIRNAME, fs_basedir->string));
-
-	// any set gamedirs will be freed up to here
-	fs_base_searchpaths = fs_searchpaths;
-
-	// check for game override
-	fs_gamedirvar = Cvar_Get ("game", "", CVAR_LATCH | CVAR_SERVERINFO);
-
-	if (fs_gamedirvar->string[0])
-		FS_SetGamedir (fs_gamedirvar->string);
 }
 
 /*
@@ -772,6 +571,301 @@ qboolean FS_ExistsInGameDir(char *filename)
 }
 
 /*
+================
+FS_NextPath
+
+Allows enumerating all of the directories in the search path
+================
+*/
+char *FS_NextPath(char *prevpath)
+{
+	searchpath_t	*s;
+	char			*prev;
+
+	if (!prevpath)
+		return fs_gamedir;
+
+	prev = fs_gamedir;
+
+	for (s = fs_searchpaths; s; s = s->next)
+	{
+		if (s->pack)
+			continue;
+
+		if (prevpath == prev)
+			return s->filename;
+
+		prev = s->filename;
+	}
+
+	return NULL;
+}
+
+/*
+============
+FS_Path_f
+============
+*/
+void FS_Path_f(void)
+{
+	searchpath_t *s;
+
+	Com_Printf("Current search path:\n");
+
+	for (s = fs_searchpaths; s; s = s->next)
+	{
+		if (s == fs_base_searchpaths)
+			Com_Printf("----------\n");
+
+		if (s->pack)
+			Com_Printf("%s (%i files)\n", s->pack->filename, s->pack->numfiles);
+		else
+			Com_Printf("%s\n", s->filename);
+	}
+}
+
+/*
+================
+FS_SetGamedir
+
+Sets the gamedir and path to a different directory.
+================
+*/
+void FS_SetGamedir(char *dir)
+{
+	searchpath_t	*next;
+
+	if (strstr(dir, "..") || strstr(dir, "/") || strstr(dir, "\\") || strstr(dir, ":"))
+	{
+		Com_Printf("Gamedir should be a single filename, not a path\n");
+		return;
+	}
+
+	//
+	// free up any current game dir info
+	//
+	while (fs_searchpaths != fs_base_searchpaths)
+	{
+		if (fs_searchpaths->pack)
+		{
+			fclose(fs_searchpaths->pack->handle);
+			Z_Free(fs_searchpaths->pack->files);
+			Z_Free(fs_searchpaths->pack);
+		}
+
+		next = fs_searchpaths->next;
+		Z_Free(fs_searchpaths);
+		fs_searchpaths = next;
+	}
+
+	//
+	// flush all data, so it will be forced to reload
+	//
+	if (dedicated && !dedicated->value)
+		Cbuf_AddText("vid_restart\nsnd_restart\n");
+
+	Com_sprintf(fs_gamedir, sizeof(fs_gamedir), "%s/%s", fs_basedir->string, dir);
+
+	if (!strcmp(dir, BASEDIRNAME) || (*dir == 0))
+	{
+		Cvar_FullSet("gamedir", "", CVAR_SERVERINFO | CVAR_NOSET);
+		Cvar_FullSet("game", "", CVAR_LATCH | CVAR_SERVERINFO);
+	}
+	else
+	{
+		Cvar_FullSet("gamedir", dir, CVAR_SERVERINFO | CVAR_NOSET);
+
+		FS_AddGameDirectory(va("%s/%s", fs_basedir->string, dir));
+	}
+}
+
+/*
+===========
+FS_ListFiles
+
+Create a list of files that match a criteria.
+===========
+*/
+char **FS_ListFiles(char *findname, int *numfiles)
+{
+	char *s;
+	int nfiles = 0;
+	char **list = 0;
+
+	s = Sys_FindFirst(findname);
+
+	while (s)
+	{
+		if (s[strlen(s) - 1] != '.')
+			nfiles++;
+
+		s = Sys_FindNext();
+	}
+
+	Sys_FindClose();
+
+	if (!nfiles)
+		return NULL;
+
+	nfiles++; // add space for a guard
+	*numfiles = nfiles;
+
+	list = malloc(sizeof(char *) * nfiles);
+	memset(list, 0, sizeof(char *) * nfiles);
+
+	s = Sys_FindFirst(findname);
+	nfiles = 0;
+
+	while (s)
+	{
+		if (s[strlen(s) - 1] != '.')
+		{
+			list[nfiles] = strdup(s);
+#ifdef _WIN32
+			Q_strlwr(list[nfiles]);
+#endif
+			nfiles++;
+		}
+
+		s = Sys_FindNext();
+	}
+
+	Sys_FindClose();
+
+	return list;
+}
+
+/*
+===========
+CompareAttributesPack
+
+Compare file attributes in packed files.
+Returns a boolean value, true if the attributes match the file.
+===========
+*/
+static qboolean ComparePackFiles(const char *findname, const char *name, char *output, int size)
+{
+	qboolean	 retval;
+	char		 buffer[MAX_OSPATH];
+
+	strncpy(buffer, name, sizeof(buffer));
+
+	retval = glob_match((char *)findname, buffer);
+	if (retval && output != NULL)
+		strncpy(output, buffer, size);
+
+	return (retval);
+}
+
+/*
+===========
+FS_ListFiles2
+
+Create a list of files that match a criteria.
+Searchs are relative to the game directory and use all the search paths
+including .pak files.
+===========
+*/
+char **FS_ListFiles2 (char *findname, int *numfiles)
+{
+	searchpath_t	*search;
+	int				i, j;
+	int				nfiles;
+	int				tmpnfiles;
+	char			**tmplist;
+	char			**list;
+	char			path[MAX_OSPATH];
+
+	nfiles = 0;
+	list = malloc(sizeof(char *));
+
+	for (search = fs_searchpaths; search != NULL; search = search->next)
+	{
+		if (search->pack != NULL)
+		{
+			// search pak files
+			for (i = 0, j = 0; i < search->pack->numfiles; i++)
+			{
+				if (ComparePackFiles(findname, search->pack->files[i].name, NULL, 0))
+					j++;
+			}
+			if (j == 0)
+				continue;
+			nfiles += j;
+			list = realloc(list, nfiles * sizeof(char *));
+			for (i = 0, j = nfiles - j; i < search->pack->numfiles; i++)
+			{
+				if (ComparePackFiles(findname, search->pack->files[i].name,	path, sizeof(path)))
+					list[j++] = strdup(path);
+			}
+		}
+		else if (search->filename != NULL)
+		{
+			// search base filesystem
+			Com_sprintf(path, sizeof(path), "%s/%s", search->filename, findname);
+			tmplist = FS_ListFiles(path, &tmpnfiles);
+			if (tmplist != NULL)
+			{
+				tmpnfiles--;
+				nfiles += tmpnfiles;
+				list = realloc(list, nfiles * sizeof(char *));
+				for (i = 0, j = nfiles - tmpnfiles;	i < tmpnfiles; i++, j++)
+					list[j] = strdup(tmplist[i] + strlen(search->filename) + 1);
+				FS_FreeFileList(tmplist, tmpnfiles + 1);
+			}
+		}
+	}
+
+	// delete any duplicates
+	tmpnfiles = 0;
+	for (i = 0; i < nfiles; i++)
+	{
+		if (list[i] == NULL)
+			continue;
+
+		for (j = i + 1; j < nfiles; j++)
+		{
+			if (list[j] != NULL && strcmp(list[i], list[j]) == 0)
+			{
+				free(list[j]);
+				list[j] = NULL;
+				tmpnfiles++;
+			}
+		}
+	}
+
+	if (tmpnfiles > 0)
+	{
+		nfiles -= tmpnfiles;
+		tmplist = malloc(nfiles * sizeof(char *));
+		for (i = 0, j = 0; i < nfiles + tmpnfiles; i++)
+		{
+			if (list[i] != NULL)
+				tmplist[j++] = list[i];
+		}
+		free(list);
+		list = tmplist;
+	}
+
+	// add a guard
+	if (nfiles > 0)
+	{
+		nfiles++;
+		list = realloc(list, nfiles * sizeof(char *));
+		list[nfiles - 1] = NULL;
+	}
+	else
+	{
+		free(list);
+		list = NULL;
+	}
+
+	*numfiles = nfiles;
+
+	return (list);
+}
+
+/*
 ===========
 FS_ConvertPath
 ===========
@@ -784,22 +878,6 @@ void FS_ConvertPath(char *s)
 			*s = '/';
 		s++;
 	}
-}
-
-static void FS_FreeFileList(char **list, int n)
-{
-	int i;
-
-	for (i = 0; i < n; i++)
-	{
-		if (list[i])
-		{
-			free(list[i]);
-			list[i] = 0;
-		}
-	}
-
-	free(list);
 }
 
 /*
@@ -815,8 +893,8 @@ void FS_FilenameCompletion(char *dir, char *ext, qboolean stripExt, void(*callba
 	char	path[MAX_STRING_CHARS];
 	char	filename[MAX_STRING_CHARS];
 
-	strcpy(path, va("%s/%s/*.%s", fs_gamedir, dir, ext));
-	filenames = FS_ListFiles(path, &nfiles);
+	strcpy(path, va("%s/*.%s", dir, ext));
+	filenames = FS_ListFiles2(path, &nfiles);
 
 	for (i = 0; i < nfiles; i++)
 	{
@@ -836,6 +914,115 @@ void FS_FilenameCompletion(char *dir, char *ext, qboolean stripExt, void(*callba
 
 	FS_FreeFileList(filenames, nfiles);
 }
+
+/*
+===========
+FS_FreeFileList
+===========
+*/
+void FS_FreeFileList(char **list, int n)
+{
+	int i;
+
+	for (i = 0; i < n; i++)
+	{
+		if (list[i])
+		{
+			free(list[i]);
+			list[i] = 0;
+		}
+	}
+
+	free(list);
+}
+
+/*
+===========
+FS_Dir_f
+===========
+*/
+void FS_Dir_f(void)
+{
+	char	*path = NULL;
+	char	findname[1024];
+	char	wildcard[1024] = "*.*";
+	char	**dirnames;
+	int		ndirs;
+
+	if (Cmd_Argc() != 1)
+	{
+		strcpy(wildcard, Cmd_Argv(1));
+	}
+
+	while ((path = FS_NextPath(path)) != NULL)
+	{
+		char *tmp = findname;
+
+		Com_sprintf(findname, sizeof(findname), "%s/%s", path, wildcard);
+
+		while (*tmp != 0)
+		{
+			if (*tmp == '\\')
+				*tmp = '/';
+
+			tmp++;
+		}
+
+		Com_Printf("Directory of %s\n", findname);
+		Com_Printf("----\n");
+
+		if ((dirnames = FS_ListFiles(findname, &ndirs)) != 0)
+		{
+			int i;
+
+			for (i = 0; i < ndirs - 1; i++)
+			{
+				if (strrchr(dirnames[i], '/'))
+					Com_Printf("%s\n", strrchr(dirnames[i], '/') + 1);
+				else
+					Com_Printf("%s\n", dirnames[i]);
+
+				free(dirnames[i]);
+			}
+
+			free(dirnames);
+		}
+
+		Com_Printf("\n");
+	};
+}
+
+/*
+================
+FS_InitFilesystem
+================
+*/
+void FS_InitFilesystem(void)
+{
+	Cmd_AddCommand("path", FS_Path_f);
+	Cmd_AddCommand("dir", FS_Dir_f);
+
+	//
+	// basedir <path>
+	// allows the game to run from outside the data tree
+	//
+	fs_basedir = Cvar_Get("basedir", ".", CVAR_NOSET);
+
+	//
+	// start up with baseq2 by default
+	//
+	FS_AddGameDirectory(va("%s/"BASEDIRNAME, fs_basedir->string));
+
+	// any set gamedirs will be freed up to here
+	fs_base_searchpaths = fs_searchpaths;
+
+	// check for game override
+	fs_gamedirvar = Cvar_Get("game", "", CVAR_LATCH | CVAR_SERVERINFO);
+
+	if (fs_gamedirvar->string[0])
+		FS_SetGamedir(fs_gamedirvar->string);
+}
+
 
 /* The following FS_*() stdio replacements are necessary if one is
 * to perform non-sequential reads on files reopened on pak files

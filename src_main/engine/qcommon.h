@@ -661,8 +661,15 @@ qboolean FS_ExistsInGameDir(char *filename);
 void	FS_ConvertPath(char *s);
 // converts dos path to unix path
 
-void FS_FilenameCompletion (char *dir, char *ext, qboolean stripExt, void(*callback)(char *s));
+void	FS_FilenameCompletion (char *dir, char *ext, qboolean stripExt, void(*callback)(char *s));
 // allows command completion for functions that open files, like maps, demos, etc
+
+char	**FS_ListFiles(char *, int *);
+char	**FS_ListFiles2(char *findname, int *numfiles);
+// generates a list of files
+
+void	FS_FreeFileList (char **list, int n);
+// frees file list that was previously generated
 
 /* The following FS_*() stdio replacements are necessary if one is
 * to perform non-sequential reads on files reopened on pak files
@@ -688,6 +695,26 @@ int FS_fclose(fshandle_t *fh);
 int FS_fgetc(fshandle_t *fh);
 char *FS_fgets(char *s, int size, fshandle_t *fh);
 long FS_ffilelength(fshandle_t *fh);
+
+
+/*
+==============================================================
+
+COMMAND COMPLETION
+
+==============================================================
+*/
+
+#define	MAX_EDIT_LINE	256
+typedef struct {
+	int		cursor;
+	char	buffer[MAX_EDIT_LINE];
+} field_t;
+
+void Field_Clear (field_t *edit);
+void Field_AutoComplete (field_t *field);
+void Field_CompleteFilename (char *dir, char *ext, qboolean stripExt);
+void Field_CompleteCommand (char *cmd, qboolean doCommands, qboolean doCvars);
 
 
 /*
@@ -764,8 +791,19 @@ NON-PORTABLE SYSTEM SERVICES
 ==============================================================
 */
 
-void	Sys_Init         (void);
-void	Sys_Quit         (void);
+// console
+void	CON_Hide (void);
+void	CON_Show (void);
+
+void	CON_Shutdown (void);
+void	CON_Init (void);
+
+char	*CON_ConsoleInput (void);
+void	CON_Print (char *string);
+
+// system init and shutdown
+void	Sys_Init (void);
+void	Sys_Shutdown (void);
 
 void	*Sys_GetProcAddress (void *handle, const char *sym);
 void	Sys_FreeLibrary (void *handle);
@@ -781,9 +819,12 @@ void	Sys_UnloadGame   (void);
 void	*Sys_GetGameAPI  (void *parms);
 
 char	*Sys_ConsoleInput (void);
-void	Sys_ConsoleOutput (char *string);
+void	Sys_Print (char *string);
+// console input and output
 
 void	Sys_Error (char *error, ...);
+
+void	Sys_SigHandler (int signal);
 
 char	*Sys_GetClipboardData (void);
 void    Sys_ShowMessageBox (const char* title, const char* message);
