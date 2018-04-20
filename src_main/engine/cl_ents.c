@@ -810,7 +810,7 @@ void CL_AddPacketEntities (frame_t *frame)
 		}
 
 		// only used for black hole model right now, FIXME: do better
-		if (renderfx == RF_TRANSLUCENT)
+		if ((renderfx & RF_TRANSLUCENT) && !(renderfx & RF_BEAM))
 			ent.alpha = 0.70;
 
 		// render effects (fullbright, translucent, etc)
@@ -1009,6 +1009,33 @@ void CL_AddPacketEntities (frame_t *frame)
 	}
 }
 
+/*
+==============
+CL_ShellEffect_ViewWeapon
+==============
+*/
+static int CL_ShellEffect_ViewWeapon (void)
+{
+	centity_t   *ent;
+	int         flags = 0;
+
+	if (cl.playernum == -1)
+		return 0;
+
+	ent = &cl_entities[cl.playernum + 1];
+	if (ent->serverframe != cl.frame.serverframe)
+		return 0;
+
+	if (!ent->current.modelindex)
+		return 0;
+
+	if (ent->current.effects & EF_PENT)
+		flags |= RF_SHELL_RED;
+	if (ent->current.effects & EF_QUAD)
+		flags |= RF_SHELL_BLUE;
+
+	return flags;
+}
 
 /*
 ==============
@@ -1018,7 +1045,7 @@ CL_AddViewWeapon
 void CL_AddViewWeapon (player_state_t *ps, player_state_t *ops)
 {
 	entity_t	gun;		// view model
-	int			i;
+	int			i, flags;
 
 	// allow the gun to be completely removed
 	if (!cl_gun->value)
@@ -1074,7 +1101,22 @@ void CL_AddViewWeapon (player_state_t *ps, player_state_t *ops)
 
 	gun.flags = RF_MINLIGHT | RF_DEPTHHACK | RF_WEAPONMODEL;
 
+	if (cl_gunAlpha->value != 1)
+	{
+		gun.alpha = Q_Clamp(0.1f, 1.0f, Cvar_VariableValue("cl_gunAlpha"));
+		gun.flags |= RF_TRANSLUCENT;
+	}
+
 	V_AddEntity (&gun);
+
+	// add shell effect from player entity
+	flags = CL_ShellEffect_ViewWeapon ();
+	if (flags)
+	{
+		gun.alpha = 0.30f * cl_gunAlpha->value;
+		gun.flags |= flags | RF_TRANSLUCENT;
+		V_AddEntity (&gun);
+	}
 }
 
 /*
@@ -1221,17 +1263,34 @@ CL_GetEntitySoundOrigin
 Called to get the sound spatialization origin
 ===============
 */
-void CL_GetEntitySoundOrigin (int ent, vec3_t org)
+extern vec3_t listener_origin;
+void CL_GetEntitySoundOrigin (int entnum, vec3_t org)
 {
-	centity_t	*old;
+	centity_t *ent;
+	cmodel_t *cm;
+	vec3_t mid;
 
-	if (ent < 0 || ent >= MAX_EDICTS)
-		Com_Error (ERR_DROP, "CL_GetEntitySoundOrigin: bad ent");
+	if (!entnum)
+	{
+		// should this ever happen?
+		VectorCopy (listener_origin, org);
+		return;
+	}
 
-	old = &cl_entities[ent];
-	VectorCopy (old->lerp_origin, org);
+	// interpolate origin
+	ent = &cl_entities[entnum];
+	VectorCopy (ent->lerp_origin, org);
 
-	// FIXME: bmodel issues...
+	// offset the origin for BSP models
+	if (ent->current.solid == 31) // a solid_bbox will never create this value
+	{
+		cm = cl.model_clip[ent->current.modelindex];
+		if (cm)
+		{
+			VectorAvg (cm->mins, cm->maxs, mid);
+			VectorAdd (org, mid, org);
+		}
+	}
 }
 
 /*
@@ -1241,16 +1300,16 @@ CL_GetEntitySoundVelocity
 Called to get the sound spatialization velocity
 ===============
 */
-void CL_GetEntitySoundVelocity (int ent, vec3_t vel)
+void CL_GetEntitySoundVelocity (int entnum, vec3_t vel)
 {
 	centity_t *old;
 
-	if ((ent < 0) || (ent >= MAX_EDICTS))
+	if ((entnum < 0) || (entnum >= MAX_EDICTS))
 	{
 		Com_Error(ERR_DROP, "CL_GetEntitySoundVelocity: bad ent");
 	}
 
-	old = &cl_entities[ent];
+	old = &cl_entities[entnum];
 	VectorSubtract(old->current.origin, old->prev.origin, vel);
 }
 

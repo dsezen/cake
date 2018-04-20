@@ -20,36 +20,48 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 // snd_al.c: OpenAL sound system
 
 #include "client.h"
-#include "snd_loc.h"
-#include "snd_codec.h"
+#include "snd_local.h"
+#include "snd_wave.h"
 #include "snd_qal.h"
+
+// cvars
+cvar_t *s_alDopplerSpeed;
+cvar_t *s_alDopplerFactor;
+cvar_t *s_alStreamBuffers;
 
 // translates from AL coordinate system to quake
 #define AL_UnpackVector(v)  -v[1],v[2],-v[0]
 #define AL_CopyVector(a,b)  ((b)[0]=-(a)[1],(b)[1]=(a)[2],(b)[2]=-(a)[0])
 
 // OpenAL implementation should support at least this number of sources
-#define MIN_CHANNELS 16
+#define MIN_CHANNELS			16
 
-// avg US male height / q2PlayerHeight = 1.764f / 56.0f = 0.0315f
-#define AL_METERS_TO_Q2_UNITS 0.0315f
+#define MIN_STREAM_BUFFERS		16
+#define MAX_STREAM_BUFFERS		256
 
-qboolean streamPlaying;
-static ALuint streamSource;
+#define AL_METERS_TO_Q2_UNITS	0.0315f // avg US male height / q2PlayerHeight = 1.764f / 56.0f = 0.0315f
+#define AL_SPEED_OF_SOUND_IN_Q2_UNITS "19225" // OpenAL speed of sound in meters * q2 units = 343.3f * 56.0f = 19224.8f
 
 static ALuint s_srcnums[MAX_CHANNELS - 1];
 static int s_framecount;
 
+qboolean streamPlaying;
+static ALuint streamSource;
+static ALuint streamBuffers[MAX_STREAM_BUFFERS];
+static ALuint streamTempBuffers[MAX_STREAM_BUFFERS];
+
+static int currentStreamBuffer = 0;
+int maxStreamBuffers = 0;
+int activeStreamBuffers = 0;
+
+static void S_AL_DeallocStreamBuffers (void);
+static void S_AL_AllocStreamBuffers (int numBuffers);
 static void S_AL_StreamUpdate (void);
 static void S_AL_StreamDie (void);
 
 void AL_SoundInfo (void)
 {
-    Com_Printf ("AL_VENDOR: %s\n", qalGetString(AL_VENDOR));
-    Com_Printf ("AL_RENDERER: %s\n", qalGetString(AL_RENDERER));
-    Com_Printf ("AL_VERSION: %s\n", qalGetString(AL_VERSION));
-    Com_DPrintf ("AL_EXTENSIONS: %s\n", qalGetString(AL_EXTENSIONS));
-    Com_Printf ("Number of sources: %d\n", s_numchannels + 1); // + 1 due to streams taking up a source, but we want it counted here...
+	QAL_Info ();
 }
 
 static void AL_InitStreamSource (void)
@@ -64,19 +76,24 @@ static void AL_InitStreamSource (void)
 }
 
 qboolean AL_Init (void)
- {
+{
     int i;
 
     if (!QAL_Init())
 	{
-        Com_Printf("OpenAL failed to initialize.\n");
+        Com_Printf(S_COLOR_RED "OpenAL failed to initialize.\n");
         return false;
     }
+
+	// init cvars
+	s_alDopplerFactor = Cvar_Get("s_alDopplerFactor", "2.0", CVAR_ARCHIVE);
+	s_alDopplerSpeed = Cvar_Get("s_alDopplerSpeed", AL_SPEED_OF_SOUND_IN_Q2_UNITS, CVAR_ARCHIVE);
+	s_alStreamBuffers = Cvar_Get("s_alStreamBuffers", "64", CVAR_ARCHIVE);
 
     // check for linear distance extension
     if (!qalIsExtensionPresent("AL_EXT_LINEAR_DISTANCE"))
 	{
-        Com_Printf( "Required AL_EXT_LINEAR_DISTANCE extension is missing.\n" );
+        Com_Printf(S_COLOR_RED "Required AL_EXT_LINEAR_DISTANCE extension is missing.\n");
         goto fail;
     }
 
@@ -85,7 +102,7 @@ qboolean AL_Init (void)
 	qalGenSources (1, &streamSource);
 	if (qalGetError() != AL_NO_ERROR)
 	{
-		Com_Printf("ERROR: Couldn't get a single Source.\n");
+		Com_Printf(S_COLOR_RED "ERROR: Couldn't get a single Source.\n");
 		goto fail;
 	}
 	else
@@ -100,15 +117,26 @@ qboolean AL_Init (void)
 		
 		if (i < MIN_CHANNELS - 1)
 		{
-			Com_Printf ("ERROR: Required at least %d sources, but got %d.\n", MIN_CHANNELS, i + 1);
+			Com_Printf (S_COLOR_RED "ERROR: Required at least %d sources, but got %d.\n", MIN_CHANNELS, i + 1);
 			goto fail;
 		}
 	}
 
     s_numchannels = i;
+	Com_DPrintf("Preallocated %i OpenAL Channels\n", s_numchannels + 1);
 	AL_InitStreamSource ();
 
-    Com_Printf ("OpenAL initialized.\n");
+	maxStreamBuffers = 0;
+	currentStreamBuffer = 0;
+	activeStreamBuffers = 0;
+	
+	i = (int)s_alStreamBuffers->value;
+	i = clamp(i, MIN_STREAM_BUFFERS, MAX_STREAM_BUFFERS);
+	s_alStreamBuffers->value = (float)i;
+	s_alStreamBuffers->modified = false;
+	S_AL_AllocStreamBuffers(i);
+
+    Com_Printf (S_COLOR_GREEN "OpenAL initialized.\n");
     return true;
 
 fail:
@@ -137,7 +165,7 @@ void AL_Shutdown (void)
     QAL_Shutdown ();
 }
 
-sfxcache_t *AL_UploadSfx(sfx_t *s, snd_info_t *s_info, byte *data)
+sfxcache_t *AL_UploadSfx(sfx_t *s, wavinfo_t *s_info, byte *data)
 {
     sfxcache_t *sc;
     ALsizei size = s_info->samples * s_info->width;
@@ -151,9 +179,7 @@ sfxcache_t *AL_UploadSfx(sfx_t *s, snd_info_t *s_info, byte *data)
     qalGenBuffers (1, &name);
     qalBufferData (name, format, data, size, s_info->rate);
     if (qalGetError() != AL_NO_ERROR)
-	{
         return NULL;
-    }
 
     // allocate placeholder sfxcache
     sc = s->cache = Z_Malloc(sizeof( *sc ));
@@ -229,9 +255,7 @@ void AL_PlayChannel (channel_t *ch)
         Com_Printf ("%s: %s\n", __func__, ch->sfx->name);
 
 	// clamp volume
-	vol = ch->oal_vol;
-	if (vol > 1.0f)
-		vol = 1.0f;
+	vol = Q_Clamp(0, 1, ch->oal_vol);	
 
     ch->srcnum = s_srcnums[ch - channels];
 
@@ -279,6 +303,7 @@ void AL_StopAllChannels (void)
     }
 
 	s_rawend = 0;
+
 	S_AL_StreamDie ();
 }
 
@@ -357,7 +382,7 @@ static void AL_AddLoopSounds (void)
         ch->end = paintedtime + sc->length;
 
 		// set it to full volume (1.0 * s_volume)
-		ch->oal_vol = s_volume->value;
+		ch->oal_vol = Q_Clamp(0, 1, s_volume->value);
 
         AL_PlayChannel (ch);
     }
@@ -389,12 +414,24 @@ void AL_Update (void)
 
     paintedtime = cls.realtime;
 
+	// check if s_alStreamBuffers was modified and update allocations
+	if (s_alStreamBuffers->modified)
+	{
+		int numBuffers = (int)s_alStreamBuffers->value;
+		numBuffers = clamp(numBuffers, MIN_STREAM_BUFFERS, MAX_STREAM_BUFFERS);
+		s_alStreamBuffers->value = (float)numBuffers;
+		s_alStreamBuffers->modified = false;
+		S_AL_AllocStreamBuffers(numBuffers);
+	}
+
     // set listener parameters
 	AL_CopyVector(listener_forward, orientation);
 	AL_CopyVector(listener_up, orientation + 3);
 	qalListener3f (AL_POSITION, AL_UnpackVector(listener_origin));
     qalListenerfv (AL_ORIENTATION, orientation);
 	qalDistanceModel (AL_LINEAR_DISTANCE_CLAMPED);
+	qalDopplerFactor (s_alDopplerFactor->value);
+	qalSpeedOfSound (s_alDopplerSpeed->value);
 
 	CL_GetViewVelocity (listener_velocity);
 	VectorScale (listener_velocity, AL_METERS_TO_Q2_UNITS, listener_velocity);
@@ -444,6 +481,11 @@ void AL_Update (void)
 	// issue playsounds
     AL_IssuePlaysounds ();
 
+	// add music
+#ifdef USE_CODEC_OGG
+	OGG_Stream ();
+#endif
+
 	// update stream
 	S_AL_StreamUpdate ();
 }
@@ -457,12 +499,32 @@ static void S_AL_StreamDie(void)
 
 	// unqueue any buffers, and delete them
 	qalGetSourcei (streamSource, AL_BUFFERS_QUEUED, &numBuffers);
-	while (numBuffers--)
-	{
-		ALuint buffer;
-		qalSourceUnqueueBuffers (streamSource, 1, &buffer);
-		qalDeleteBuffers (1, &buffer);
-	}
+	qalSourceUnqueueBuffers(streamSource, numBuffers, streamTempBuffers);
+	activeStreamBuffers -= numBuffers;
+	currentStreamBuffer = 0;
+}
+
+static void S_AL_DeallocStreamBuffers(void)
+{
+	// make sure stream is dead
+	S_AL_StreamDie();
+
+	// delete stream buffer
+	qalDeleteBuffers((ALsizei)maxStreamBuffers, streamBuffers);
+	maxStreamBuffers = 0;
+	currentStreamBuffer = 0;
+}
+
+static void S_AL_AllocStreamBuffers(int numBuffers)
+{
+	S_AL_DeallocStreamBuffers();
+
+	// allocate stream buffer
+	qalGenBuffers((ALsizei)numBuffers, streamBuffers);
+
+	maxStreamBuffers = numBuffers;
+	currentStreamBuffer = 0;
+	Com_DPrintf("Preallocated %i OpenAL Stream Buffers\n", maxStreamBuffers);
 }
 
 static void S_AL_StreamUpdate(void)
@@ -480,12 +542,8 @@ static void S_AL_StreamUpdate(void)
 	{
 		// unqueue any buffers, and delete them
 		qalGetSourcei(streamSource, AL_BUFFERS_PROCESSED, &numBuffers);
-		while (numBuffers--)
-		{
-			ALuint buffer;
-			qalSourceUnqueueBuffers(streamSource, 1, &buffer);
-			qalDeleteBuffers(1, &buffer);
-		}
+		qalSourceUnqueueBuffers(streamSource, numBuffers, streamTempBuffers);
+		activeStreamBuffers -= numBuffers;
 	}
 
 	// start the stream source playing if necessary
@@ -522,13 +580,24 @@ static ALuint S_AL_Format(int width, int channels)
 
 void AL_RawSamples (int samples, int rate, int width, int channels, byte *data, float volume)
 {
-	ALuint buffer;
+	ALuint buffer = 0;
 	ALuint format;
+
+	if (activeStreamBuffers >= maxStreamBuffers)
+		return;
 
 	format = S_AL_Format (width, channels);
 
 	// create a buffer, and stuff the data into it
-	qalGenBuffers (1, &buffer);
+	if (streamBuffers)
+	{
+		buffer = streamBuffers[currentStreamBuffer];
+		currentStreamBuffer = (currentStreamBuffer + 1) % maxStreamBuffers;
+	}
+	else
+	{
+		qalGenBuffers(1, &buffer);
+	}
 	qalBufferData (buffer, format, (ALvoid *)data, (samples * width * channels), rate);
 
 	// clamp volume
@@ -540,7 +609,19 @@ void AL_RawSamples (int samples, int rate, int width, int channels, byte *data, 
 
 	// shove the data onto the stream source
 	qalSourceQueueBuffers (streamSource, 1, &buffer);
+	activeStreamBuffers++;
 
 	// emulate behavior of S_RawSamples for s_rawend
 	s_rawend += samples;
+}
+
+/*
+AL_UnqueueRawSamples
+
+Kills all raw samples still in flight.
+This is used to stop music playback when silence is triggered.
+*/
+void AL_UnqueueRawSamples(void)
+{
+	S_AL_StreamDie();
 }

@@ -667,11 +667,7 @@ Print text to the dedicated console
 void Sys_Print (char *string)
 {
 #ifdef DEDICATED_ONLY
-	CON_Hide();
-
 	CON_Print(string);
-
-	CON_Show();
 #endif
 }
 
@@ -739,7 +735,7 @@ void *Sys_LoadLibrary (const char *path, const char *sym, void **handle)
 	module = SDL_LoadObject (path);
 	if (!module)
 	{
-		Com_Printf ("%s failed: %s\n", __func__, SDL_GetError());
+		Com_Printf (S_COLOR_RED "%s failed: %s\n", __func__, SDL_GetError());
 		return NULL;
 	}
 
@@ -748,7 +744,7 @@ void *Sys_LoadLibrary (const char *path, const char *sym, void **handle)
 		entry = SDL_LoadFunction (module, sym);
 		if (!entry)
 		{
-			Com_Printf ("%s failed: %s\n", __func__, SDL_GetError());
+			Com_Printf (S_COLOR_RED "%s failed: %s\n", __func__, SDL_GetError());
 			Sys_FreeLibrary (module);
 			return NULL;
 		}
@@ -758,7 +754,7 @@ void *Sys_LoadLibrary (const char *path, const char *sym, void **handle)
 		entry = NULL;
 	}
 
-	Com_DPrintf ("%s succeeded: %s\n", __func__, path);
+	Com_DPrintf (S_COLOR_GREEN "%s succeeded: %s\n", __func__, path);
 
 	*handle = module;
 

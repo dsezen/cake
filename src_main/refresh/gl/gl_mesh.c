@@ -26,11 +26,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 extern float r_avertexnormals[NUMVERTEXNORMALS][3];
 
-#define SHADOW_SKEW_X -0.7f		// skew along x axis. -0.7 to mimic glquake shadows
-#define SHADOW_SKEW_Y 0			// skew along y axis. 0 to mimic glquake shadows
-#define SHADOW_VSCALE 0			// 0 = completely flat
-#define SHADOW_HEIGHT 0.1f		// how far above the floor to render the shadow
-
 typedef struct meshubo_s
 {
 	glmatrix localMatrix;
@@ -44,12 +39,17 @@ typedef struct meshubo_s
 	float shellmix;
 } meshubo_t;
 
-
 #define MESH_UBO_MAX_BLOCKS		128
 
 GLuint gl_meshprog = 0;
 GLuint gl_meshubo = 0;
 GLuint gl_meshubobinding = 0;
+
+GLuint u_meshMaxLights;
+GLuint u_meshEntOrig;
+GLuint u_meshLightPos[MAX_LIGHTS];
+GLuint u_meshLightColor[MAX_LIGHTS];
+GLuint u_meshLightAtten[MAX_LIGHTS];
 
 int gl_meshuboblocksize = 0;
 int gl_meshubonumblocks = 0;
@@ -74,6 +74,15 @@ void RMesh_CreatePrograms (void)
 
 	glProgramUniform1i (gl_meshprog, glGetUniformLocation (gl_meshprog, "diffuse"), 0);
 	glProgramUniform3fv (gl_meshprog, glGetUniformLocation (gl_meshprog, "lightnormal"), 162, (float *) r_avertexnormals);
+
+	u_meshMaxLights = glGetUniformLocation(gl_meshprog, "r_maxLights");
+	u_meshEntOrig = glGetUniformLocation(gl_meshprog, "r_entOrig");
+	for (int i = 0; i < MAX_LIGHTS; ++i)
+	{
+		u_meshLightPos[i] = glGetUniformLocation(gl_meshprog, va("Lights.origin[%i]", i));
+		u_meshLightColor[i] = glGetUniformLocation(gl_meshprog, va("Lights.color[%i]", i));
+		u_meshLightAtten[i] = glGetUniformLocation(gl_meshprog, va("Lights.radius[%i]", i));
+	}
 
 	glGenBuffers (1, &gl_meshubo);
 	glNamedBufferDataEXT (gl_meshubo, MESH_UBO_MAX_BLOCKS * gl_meshuboblocksize, NULL, GL_STREAM_DRAW);
@@ -112,7 +121,7 @@ interpolates between two frames and origins
 FIXME: batch lerp all vertexes
 =============
 */
-void GL_DrawAliasFrameLerp (entity_t *e, dmdl_t *hdr, float backlerp, qboolean shadow)
+void GL_DrawAliasFrameLerp (entity_t *e, dmdl_t *hdr, float backlerp)
 {
 	int		i;
 	float	frontlerp;
@@ -165,7 +174,9 @@ void GL_DrawAliasFrameLerp (entity_t *e, dmdl_t *hdr, float backlerp, qboolean s
 	}
 	else
 	{
-		gl_meshuboupdate.powersuitscale = POWERSUIT_SCALE;
+		float scale = (e->flags & RF_WEAPONMODEL) ? WEAPONSHELL_SCALE : POWERSUIT_SCALE;
+
+		gl_meshuboupdate.powersuitscale = scale;
 		gl_meshuboupdate.shellmix = 1.0f;
 	}
 
@@ -224,13 +235,13 @@ static qboolean R_CullAliasModel (vec3_t bbox[8], entity_t *e)
 
 	if ((e->currframe >= hdr->num_frames) || (e->currframe < 0))
 	{
-		VID_Printf (PRINT_ALL, "R_CullAliasModel %s: no such frame %d\n", e->model->name, e->currframe);
+		VID_Printf (PRINT_ALL, S_COLOR_RED "R_CullAliasModel %s: no such frame %d\n", e->model->name, e->currframe);
 		e->currframe = 0;
 	}
 
 	if ((e->lastframe >= hdr->num_frames) || (e->lastframe < 0))
 	{
-		VID_Printf (PRINT_ALL, "R_CullAliasModel %s: no such oldframe %d\n", e->model->name, e->lastframe);
+		VID_Printf (PRINT_ALL, S_COLOR_RED "R_CullAliasModel %s: no such oldframe %d\n", e->model->name, e->lastframe);
 		e->lastframe = 0;
 	}
 
@@ -369,7 +380,21 @@ void R_DrawAliasModel (entity_t *e)
 	}
 	else
 	{
+		dlight_t *l;
+		int i;
+
+		// grab static lighting from lightmap
 		R_LightPoint (e->currorigin, gl_meshuboupdate.shadelight, lightspot);
+
+		// grab dynamic lighting
+		glProgramUniform1i (gl_meshprog, u_meshMaxLights, r_newrefdef.num_dlights);
+		glProgramUniform3fv (gl_meshprog, u_meshEntOrig, 1, e->currorigin);
+		for (i = 0, l = r_newrefdef.dlights; i < r_newrefdef.num_dlights; i++, l++)
+		{
+			glProgramUniform3fv (gl_meshprog, u_meshLightPos[i], 1, l->origin);
+			glProgramUniform3fv (gl_meshprog, u_meshLightColor[i], 1, l->color);
+			glProgramUniform1f (gl_meshprog, u_meshLightAtten[i], l->radius);
+		}
 
 		// player lighting hack for communication back to server
 		// big hack!
@@ -395,8 +420,10 @@ void R_DrawAliasModel (entity_t *e)
 	if (e->flags & RF_MINLIGHT)
 	{
 		for (i = 0; i < 3; i++)
+		{
 			if (gl_meshuboupdate.shadelight[i] > 0.1)
 				break;
+		}
 
 		if (i == 3)
 		{
@@ -481,14 +508,14 @@ void R_DrawAliasModel (entity_t *e)
 
 	if ((e->currframe >= hdr->num_frames) || (e->currframe < 0))
 	{
-		VID_Printf (PRINT_ALL, "R_DrawAliasModel %s: no such frame %d\n", e->model->name, e->currframe);
+		VID_Printf (PRINT_ALL, S_COLOR_RED "R_DrawAliasModel %s: no such frame %d\n", e->model->name, e->currframe);
 		e->currframe = 0;
 		e->lastframe = 0;
 	}
 
 	if ((e->lastframe >= hdr->num_frames) || (e->lastframe < 0))
 	{
-		VID_Printf (PRINT_ALL, "R_DrawAliasModel %s: no such oldframe %d\n", e->model->name, e->lastframe);
+		VID_Printf (PRINT_ALL, S_COLOR_RED "R_DrawAliasModel %s: no such oldframe %d\n", e->model->name, e->lastframe);
 		e->currframe = 0;
 		e->lastframe = 0;
 	}
@@ -496,7 +523,7 @@ void R_DrawAliasModel (entity_t *e)
 	if (!r_lerpmodels->value)
 		e->backlerp = 0;
 
-	GL_DrawAliasFrameLerp (e, hdr, e->backlerp, false);
+	GL_DrawAliasFrameLerp (e, hdr, e->backlerp);
 
 	if ((e->flags & RF_WEAPONMODEL) && (r_lefthand->value == 1.0F))
 	{
@@ -505,52 +532,200 @@ void R_DrawAliasModel (entity_t *e)
 
 	if (e->flags & RF_DEPTHHACK)
 		glDepthRange (gldepthmin, gldepthmax);
+}
 
-	if (gl_shadows->value && !(e->flags & (RF_TRANSLUCENT | RF_WEAPONMODEL | RF_NOSHADOW)))
+#define SHADOW_SKEW_X -0.7 // skew along x axis. -0.7 to mimic glquake shadows
+#define SHADOW_SKEW_Y 0 // skew along y axis. 0 to mimic glquake shadows
+#define SHADOW_VSCALE 0 // 0=completely flat
+#define SHADOW_HEIGHT 0.1 // how far above the floor to render the shadow
+
+/*
+=================
+R_DrawAliasModelShadow
+=================
+*/
+void R_DrawAliasModelShadow(entity_t *e)
+{
+	int			i;
+	dmdl_t		*hdr;
+	float		an;
+	vec3_t		bbox[8];
+	image_t		*skin;
+	float		lightspot[3];
+	glmatrix	shadowmatrix;
+	float		lheight;
+
+	if (gl_shadows->value && (e->flags & (RF_TRANSLUCENT | RF_WEAPONMODEL | RF_NOSHADOW)))
+		return;
+
+	if (!(e->flags & RF_WEAPONMODEL))
 	{
-		glmatrix shadowmatrix;
-
-		// recreate the local matrix for the model, this time appropriately for shadows
-		GL_LoadIdentity(&gl_meshuboupdate.localMatrix);
-
-		// run the scale first which is the same as using a depth hack in our shader
-		if (e->flags & RF_DEPTHHACK)
-			GL_ScaleMatrix(&gl_meshuboupdate.localMatrix, 1.0f, 1.0f, 0.3f);
-
-		float lheight = e->currorigin[2] - lightspot[2];
-
-		GL_MultMatrix(&gl_meshuboupdate.localMatrix, &gl_meshuboupdate.localMatrix, &r_worldmatrix);
-		GL_TranslateMatrix(&gl_meshuboupdate.localMatrix, e->currorigin[0], e->currorigin[1], e->currorigin[2]);
-		GL_TranslateMatrix(&gl_meshuboupdate.localMatrix, 0.0f, 0.0f, -lheight);
-
-		shadowmatrix.m[0][0] = 1;
-		shadowmatrix.m[0][1] = 0;
-		shadowmatrix.m[0][2] = 0;
-		shadowmatrix.m[0][3] = 0;
-
-		shadowmatrix.m[1][0] = 0;
-		shadowmatrix.m[1][1] = 1;
-		shadowmatrix.m[1][2] = 0;
-		shadowmatrix.m[1][3] = 0;
-
-		shadowmatrix.m[2][0] = SHADOW_SKEW_X;
-		shadowmatrix.m[2][1] = SHADOW_SKEW_Y;
-		shadowmatrix.m[2][2] = SHADOW_VSCALE;
-		shadowmatrix.m[2][3] = 0;
-
-		shadowmatrix.m[3][0] = 0;
-		shadowmatrix.m[3][1] = 0;
-		shadowmatrix.m[3][2] = SHADOW_HEIGHT;
-		shadowmatrix.m[3][3] = 1;
-
-		GL_MultMatrix(&gl_meshuboupdate.localMatrix, &gl_meshuboupdate.localMatrix, &shadowmatrix);
-
-		GL_TranslateMatrix(&gl_meshuboupdate.localMatrix, 0.0f, 0.0f, lheight);
-		GL_RadianRotateMatrix(&gl_meshuboupdate.localMatrix, e->angles[YAW], e->angles[PITCH], -e->angles[ROLL]);
-
-		// shadow pass
-		GL_DrawAliasFrameLerp(e, hdr, e->backlerp, true);
+		if (R_CullAliasModel(bbox, e))
+			return;
 	}
+
+	if (e->flags & RF_WEAPONMODEL)
+	{
+		if (r_lefthand->value == 2)
+			return;
+	}
+
+	hdr = (dmdl_t *)e->model->extradata;
+
+	if (e->flags & (RF_SHELL_GREEN | RF_SHELL_RED | RF_SHELL_BLUE))
+	{
+		VectorClear(gl_meshuboupdate.shadelight);
+
+		if (e->flags & RF_SHELL_RED) gl_meshuboupdate.shadelight[0] = 1.0;
+		if (e->flags & RF_SHELL_GREEN) gl_meshuboupdate.shadelight[1] = 1.0;
+		if (e->flags & RF_SHELL_BLUE) gl_meshuboupdate.shadelight[2] = 1.0;
+	}
+	else if (e->flags & RF_FULLBRIGHT)
+	{
+		gl_meshuboupdate.shadelight[0] = 1.0;
+		gl_meshuboupdate.shadelight[1] = 1.0;
+		gl_meshuboupdate.shadelight[2] = 1.0;
+	}
+	else
+	{
+		R_LightPoint(e->currorigin, gl_meshuboupdate.shadelight, lightspot);
+
+		// player lighting hack for communication back to server
+		// big hack!
+		if (e->flags & RF_WEAPONMODEL)
+		{
+			// pick the greatest component, which should be the same
+			// as the mono value returned by software
+			if (gl_meshuboupdate.shadelight[0] > gl_meshuboupdate.shadelight[1])
+			{
+				if (gl_meshuboupdate.shadelight[0] > gl_meshuboupdate.shadelight[2])
+					r_lightlevel->value = 150 * gl_meshuboupdate.shadelight[0];
+				else r_lightlevel->value = 150 * gl_meshuboupdate.shadelight[2];
+			}
+			else
+			{
+				if (gl_meshuboupdate.shadelight[1] > gl_meshuboupdate.shadelight[2])
+					r_lightlevel->value = 150 * gl_meshuboupdate.shadelight[1];
+				else r_lightlevel->value = 150 * gl_meshuboupdate.shadelight[2];
+			}
+		}
+	}
+
+	if (e->flags & RF_MINLIGHT)
+	{
+		for (i = 0; i < 3; i++)
+			if (gl_meshuboupdate.shadelight[i] > 0.1)
+				break;
+
+		if (i == 3)
+		{
+			gl_meshuboupdate.shadelight[0] = 0.1;
+			gl_meshuboupdate.shadelight[1] = 0.1;
+			gl_meshuboupdate.shadelight[2] = 0.1;
+		}
+	}
+
+	if (e->flags & RF_GLOW)
+	{
+		// bonus items will pulse with time
+		float	scale;
+		float	min;
+
+		scale = 0.1 * sin(r_newrefdef.time * 7);
+
+		for (i = 0; i < 3; i++)
+		{
+			min = gl_meshuboupdate.shadelight[i] * 0.8;
+			gl_meshuboupdate.shadelight[i] += scale;
+
+			if (gl_meshuboupdate.shadelight[i] < min)
+				gl_meshuboupdate.shadelight[i] = min;
+		}
+	}
+
+	an = e->angles[1] / 180 * M_PI;
+	Q_sincos(-an, &gl_meshuboupdate.shadevector[1], &gl_meshuboupdate.shadevector[0]);
+	gl_meshuboupdate.shadevector[2] = 1;
+	VectorNormalize(gl_meshuboupdate.shadevector);
+
+	// locate the proper data
+	c_alias_polys += hdr->num_tris;
+
+	// draw all the triangles
+	GL_LoadMatrix(&gl_meshuboupdate.localMatrix, &r_mvpmatrix);
+
+	GL_TranslateMatrix(&gl_meshuboupdate.localMatrix, e->currorigin[0], e->currorigin[1], e->currorigin[2]);
+	GL_RotateMatrix(&gl_meshuboupdate.localMatrix, e->angles[1], 0, 0, 1);
+	GL_RotateMatrix(&gl_meshuboupdate.localMatrix, e->angles[0], 0, 1, 0);
+	GL_RotateMatrix(&gl_meshuboupdate.localMatrix, -e->angles[2], 1, 0, 0);
+
+	// select skin
+	if (e->skin)
+		skin = e->skin;	// custom player skin
+	else
+	{
+		if (e->skinnum >= MAX_MD2SKINS)
+			skin = e->model->skins[0];
+		else
+		{
+			skin = e->model->skins[e->skinnum];
+
+			if (!skin)
+				skin = e->model->skins[0];
+		}
+	}
+
+	if (!skin)
+		skin = r_notexture;	// fallback...
+
+	GL_BindTexture(GL_TEXTURE0, GL_TEXTURE_2D, r_modelsampler, skin->texnum);
+
+	if ((e->currframe >= hdr->num_frames) || (e->currframe < 0))
+	{
+		VID_Printf(PRINT_ALL, S_COLOR_RED "R_DrawAliasModel %s: no such frame %d\n", e->model->name, e->currframe);
+		e->currframe = 0;
+		e->lastframe = 0;
+	}
+
+	if ((e->lastframe >= hdr->num_frames) || (e->lastframe < 0))
+	{
+		VID_Printf(PRINT_ALL, S_COLOR_RED "R_DrawAliasModel %s: no such oldframe %d\n", e->model->name, e->lastframe);
+		e->currframe = 0;
+		e->lastframe = 0;
+	}
+
+	if (!r_lerpmodels->value)
+		e->backlerp = 0;
+
+	lheight = e->currorigin[2] - lightspot[2];
+	GL_TranslateMatrix(&gl_meshuboupdate.localMatrix, 0.0f, 0.0f, -lheight);
+
+	shadowmatrix.m[0][0] = 1;
+	shadowmatrix.m[0][1] = 0;
+	shadowmatrix.m[0][2] = 0;
+	shadowmatrix.m[0][3] = 0;
+
+	shadowmatrix.m[1][0] = 0;
+	shadowmatrix.m[1][1] = 1;
+	shadowmatrix.m[1][2] = 0;
+	shadowmatrix.m[1][3] = 0;
+
+	shadowmatrix.m[2][0] = SHADOW_SKEW_X;
+	shadowmatrix.m[2][1] = SHADOW_SKEW_Y;
+	shadowmatrix.m[2][2] = SHADOW_VSCALE;
+	shadowmatrix.m[2][3] = 0;
+
+	shadowmatrix.m[3][0] = 0;
+	shadowmatrix.m[3][1] = 0;
+	shadowmatrix.m[3][2] = SHADOW_HEIGHT;
+	shadowmatrix.m[3][3] = 1;
+
+	GL_MultMatrix(&gl_meshuboupdate.localMatrix, &gl_meshuboupdate.localMatrix, &shadowmatrix);
+
+	GL_TranslateMatrix(&gl_meshuboupdate.localMatrix, 0.0f, 0.0f, lheight);
+
+	// draw shadow
+	GL_DrawAliasFrameLerp(e, hdr, e->backlerp);
 }
 
 

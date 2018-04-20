@@ -378,7 +378,7 @@ void SV_AreaEdicts_r (areanode_t *node)
 
 		if (area_count == area_maxcount)
 		{
-			Com_Printf ("SV_AreaEdicts: MAXCOUNT\n");
+			Com_Printf (S_COLOR_RED "SV_AreaEdicts: MAXCOUNT\n");
 			return;
 		}
 
@@ -609,7 +609,6 @@ SV_Trace
 Moves the given mins/maxs volume through the world from start to end.
 
 Passedict and edicts owned by passedict are explicitly not checked.
-
 ==================
 */
 trace_t SV_Trace (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, edict_t *passedict, int contentmask)
@@ -623,6 +622,7 @@ trace_t SV_Trace (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, edict_t *p
 
 	// clip to world
 	clip.trace = CM_BoxTrace (start, end, mins, maxs, 0, contentmask);
+	if (!ge) return clip.trace;
 	clip.trace.ent = ge->edicts;
 
 	if (clip.trace.fraction == 0)
@@ -646,4 +646,3 @@ trace_t SV_Trace (vec3_t start, vec3_t mins, vec3_t maxs, vec3_t end, edict_t *p
 
 	return clip.trace;
 }
-

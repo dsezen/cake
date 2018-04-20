@@ -6,17 +6,18 @@
 
 ## Overview
 
-Cake is a modified Quake 2 based game engine built on top of the Quake 2 source code released by id Software.
+_Cake_ is a modified Quake 2 based game engine built on top of the Quake 2 source code released by id Software.
 
 Some of the major features currently implemented are:
 
   * Easy to use modern build system via CMake
   * SDL 2 backend
   * OpenAL audio backend
-  * Background Music support (tracker xm/s3m/it/mod, mp3, and even wav)
-  * RoQ cinematic video encoder/decoder
-  * Re-written OpenGL 3.3 renderer built for speed and a retro software look
-  * HTTP/FTP download redirection (using cURL)
+  * OGG Vorbis background music support
+  * RoQ cinematic video encoder / decoder
+  * Brand new OpenGL 3.x renderer
+  * UI improvements - mouse / controller support and TrueType font rendering
+  * HTTP/FTP download redirection (using cURL) and improved UDP downloading
   * Portable content creation tools (q2map, bake)
   * Master server and dedicated server tool
   * Many, many, many bug fixes
@@ -73,11 +74,11 @@ Maintainers
   
 Contributions from
 
-  * Ryan C. Gordon <icculus@icculus.org> - initial sdl 1.2 quake2 port - see http://www.icculus.org/quake2/
-  * Stuart Dalton <badcdev@gmail.com> - ioquake3 sound codecs system
-  * O. Sezer <sezero@users.sourceforge.net> - uHexen II sound codecs system
+  * Ryan C. Gordon <icculus@icculus.org> - initial SDL Quake2 port - see http://www.icculus.org/quake2/
+  * Tim Angus and Thilo Schulz - ioQuake3 AVI recording
   * yquake2 and KMQ2 projects - Save game system
-  * FFmpeg project - RoQ video encoder
+  * FFmpeg project - RoQ video encoder/decoder
+  * Xiph.org - OGG Vorbis example encoder/decoder
   * Frank Sapone - master server - see https://bitbucket.org/maraakate/gsmaster
-  * Deniz Sezen - bug fixes
+  * Deniz Sezen - testing and bug fixes
   * Lucas Zadrozny - testing and bug fixes

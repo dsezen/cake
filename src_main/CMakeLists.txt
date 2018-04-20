@@ -4,6 +4,10 @@ cmake_minimum_required(VERSION 3.0)
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 set(CMAKE_INSTALL_PREFIX "${CMAKE_SOURCE_DIR}/..")
 
+# grab our git info
+include(GetGitRevisionDescription)
+git_describe(GIT_SHA1 --match=NeVeRmAtCh --always --abbrev=8)
+
 # set the USE_FOLDERS global property, this puts the targets into a CMakePredefinedTargets folder
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -47,10 +51,9 @@ option(ONATIVE "Optimize for the host CPU" OFF)
 option(WIN_UWP "Build for Microsoft Universal Windows Platform" OFF)
 option(UTILS "Build utilities and tools" ON)
 
-option(USE_CODEC_WAV "Build with wav sound codec" ON)
-option(USE_CODEC_MP3 "Build with mp3 sound codec and libmad" ON)
-option(USE_CODEC_MODPLUG "Build with tracker xm/s3/it/mod sound codecs and libmodplug" ON)
+option(USE_CODEC_OGG "Build with ogg vorbis sound codec and libogg/libvorbis" ON)
 option(USE_OPENAL "Build with OpenAL sound backend" ON)
+option(USE_FREETYPE "Build with freetype font backend" ON)
 
 set(CPU_OPTIMIZATION "-mmmx -msse -msse2" CACHE STRING "Which CPU specific optimitations should be used beside the compiler's default?")
 

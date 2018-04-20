@@ -725,7 +725,7 @@ void SCR_RunCinematic (void)
 
 	if (frame > cin->frame + 1)
 	{
-		Com_Printf("Dropped frame: %i > %i\n", frame, cin->frame + 1);
+		Com_Printf(S_COLOR_YELLOW "Dropped frame: %i > %i\n", frame, cin->frame + 1);
 		cin->time = Sys_Milliseconds() - cin->frame * 1000 / RoQ_FRAMERATE;
 	}
 
@@ -779,10 +779,12 @@ void SCR_PlayCinematic (char *arg)
 	roq_chunk_t *chunk = &cin->chunk;
 
 	// make sure we clear all key states
-	Key_ClearStates ();
+	In_FlushQueue ();
 
 	// make sure music isn't playing
-	BGM_Stop ();
+#ifdef USE_CODEC_OGG
+	OGG_Stop ();
+#endif
 
 	dot = strstr (arg, ".");
 	if (dot && !strcmp (dot, ".tga"))
@@ -790,7 +792,7 @@ void SCR_PlayCinematic (char *arg)
 #if 0
 		// static tga image
 		Com_sprintf (cin->name, sizeof(cin->name), "pics/%s", arg);
-		LoadTGAFile (cin->name, &cin->pic, &cin->width, &cin->height);
+		LoadImageThruSTB (cin->name, "tga", &cin->pic, &cin->width, &cin->height);
 		cin->frame = -1;
 		cin->time = 1;
 		SCR_EndLoadingPlaque ();
@@ -812,7 +814,7 @@ void SCR_PlayCinematic (char *arg)
 	cin->s_width = 2;
 
 	cin->frame = 0;
-	cin->remaining = FS_FOpenFile(cin->name, &cin->file);
+	cin->remaining = FS_FOpenFile(cin->name, &cin->file, FS_READ, false);
 	if (!cin->file || !cin->remaining)
 	{
 		SCR_FinishCinematic();

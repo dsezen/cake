@@ -21,17 +21,19 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 #include "client.h"
 
-//=============
-//
 // development tools for weapons
-//
 int			gun_frame;
-struct model_s	*gun_model;
-
-//=============
+struct model_s *gun_model;
 
 cvar_t		*crosshair;
-cvar_t		*crosshair_scale;
+cvar_t		*crosshairX;
+cvar_t		*crosshairY;
+cvar_t		*crosshairSize;
+cvar_t		*crosshairDot;
+cvar_t		*crosshairCircle;
+cvar_t		*crosshairCross;
+cvar_t		*crosshairAlpha;
+
 cvar_t		*cl_testparticles;
 cvar_t		*cl_testentities;
 cvar_t		*cl_testlights;
@@ -39,9 +41,8 @@ cvar_t		*cl_testblend;
 
 cvar_t		*cl_stats;
 
-
 int			r_numdlights;
-dlight_t	r_dlights[MAX_DLIGHTS];
+dlight_t	r_dlights[MAX_LIGHTS];
 
 int			r_numentities;
 entity_t	r_entities[MAX_ENTITIES];
@@ -51,8 +52,9 @@ particle_t	r_particles[MAX_PARTICLES];
 
 lightstyle_t	r_lightstyles[MAX_LIGHTSTYLES];
 
-char cl_weaponmodels[MAX_CLIENTWEAPONMODELS][MAX_QPATH];
-int num_cl_weaponmodels;
+int			num_cl_weaponmodels;
+char		cl_weaponmodels[MAX_CLIENTWEAPONMODELS][MAX_QPATH];
+
 
 /*
 ====================
@@ -106,10 +108,6 @@ void V_AddParticle(vec3_t org, int color, float alpha)
 	p->color = d_8to24table_rgba[color & 255];
 	((byte *)&p->color)[3] = (alpha > 1) ? 255 : ((alpha < 0) ? 0 : alpha * 255);
 #endif
-
-	// these are leftover for software refresh
-	p->soft_color = color;
-	p->alpha = alpha;
 }
 
 
@@ -121,18 +119,17 @@ V_AddLight
 void V_AddLight (vec3_t org, float intensity, float r, float g, float b)
 {
 	dlight_t	*dl;
-	float scaler = 1.0f;
 
-	if (r_numdlights >= MAX_DLIGHTS)
+	if (r_numdlights == MAX_LIGHTS)
 		return;
 
 	dl = &r_dlights[r_numdlights++];
-	VectorCopy (org, dl->origin);
-	dl->intensity = intensity * Cvar_VariableValue("gl_dynamic");
 
-	dl->color[0] = r * scaler;
-	dl->color[1] = g * scaler;
-	dl->color[2] = b * scaler;
+	VectorCopy (org, dl->origin);
+	dl->radius = intensity;
+	dl->color[0] = r;
+	dl->color[1] = g;
+	dl->color[2] = b;
 }
 
 /*
@@ -176,8 +173,12 @@ void V_TestParticles (void)
 		for (j = 0; j<3; j++)
 			p->origin[j] = cl.refdef.vieworg[j] + cl.v_forward[j] * d + cl.v_right[j] * r + cl.v_up[j] * u;
 
-		p->color = 8;
-		p->alpha = cl_testparticles->value;
+#ifndef WIN_UWP
+		// transform 8bit colors into RGBA
+		extern unsigned d_8to24table_rgba[];
+		p->color = d_8to24table_rgba[8 & 255];
+		((byte *)&p->color)[3] = (cl_testparticles->value > 1) ? 255 : ((cl_testparticles->value < 0) ? 0 : cl_testparticles->value * 255);
+#endif
 	}
 }
 
@@ -244,7 +245,7 @@ void V_TestLights (void)
 		dl->color[0] = ((i % 6) + 1) & 1;
 		dl->color[1] = (((i % 6) + 1) & 2) >> 1;
 		dl->color[2] = (((i % 6) + 1) & 4) >> 2;
-		dl->intensity = 200;
+		dl->radius = 200;
 	}
 }
 
@@ -349,7 +350,17 @@ void CL_PrepRefresh (void)
 	cl.force_refdef = true;	// make sure we have a valid refdef
 
 	// start the cd track
-	BGM_PlayCDtrack (atoi (cl.configstrings[CS_CDTRACK]), true);
+#ifdef USE_CODEC_OGG
+	if ((int)strtol(cl.configstrings[CS_CDTRACK], (char **)NULL, 10) < 10)
+	{
+		char tmp[3] = "0";
+		OGG_ParseCmd(strcat(tmp, cl.configstrings[CS_CDTRACK]));
+	}
+	else
+	{
+		OGG_ParseCmd(cl.configstrings[CS_CDTRACK]);
+	}
+#endif
 }
 
 /*
@@ -442,30 +453,90 @@ SCR_DrawCrosshair
 */
 void SCR_DrawCrosshair (void)
 {
-	float scale;
+	float x, y, w, h;
+	vec4_t color;
+	int health;
+	char dot[MAX_QPATH], circle[MAX_QPATH], cross[MAX_QPATH];
 
 	if (!crosshair->value)
 		return;
 
+	// cache pics if we just turned on crosshair
 	if (crosshair->modified)
 	{
 		crosshair->modified = false;
 		SCR_TouchPics ();
 	}
 
-	if (!crosshair_pic[0])
-		return;
+	if (crosshairDot->integer <= 0) // no dot
+		dot[0] = 0;
+	else
+		Com_sprintf(dot, sizeof(dot), (char *)crosshairDotPic[crosshairDot->integer - 1]);
 
-	if (crosshair_scale->value < 0)
+	if (crosshairCircle->integer <= 0) // no circle
+		circle[0] = 0;
+	else
+		Com_sprintf(circle, sizeof(circle), (char *)crosshairCirclePic[crosshairCircle->integer - 1]);
+
+	if (crosshairCross->integer <= 0) // no cross
+		cross[0] = 0;
+	else
+		Com_sprintf(cross, sizeof(cross), (char *)crosshairCrossPic[crosshairCross->integer - 1]);
+
+	// set size
+	w = h = crosshairSize->value;
+
+	x = crosshairX->integer;
+	y = crosshairY->integer;
+	SCR_AdjustFrom640 (&x, &y, &w, &h);
+
+	// set color based on health
+	color[0] = 1.0f;
+	color[3] = crosshairAlpha->value;
+	health = cl.frame.playerstate.stats[STAT_HEALTH];
+	if (health <= 0)
 	{
-		scale = SCR_GetHUDScale ();
+		VectorClear(color);	// black
+		color[3] = 1.0f;
+	}
+
+	if (health >= 100)
+	{
+		color[2] = 1.0f;
+	}
+	else if (health < 66)
+	{
+		color[2] = 0;
 	}
 	else
 	{
-		scale = crosshair_scale->value;
+		color[2] = (health - 66) / 33.0f;
 	}
 
-	RE_Draw_PicScaled ((viddef.width - crosshair_width * scale) / 2, (viddef.height - crosshair_height * scale) / 2, crosshair_pic, scale);
+	if (health > 60)
+	{
+		color[1] = 1.0f;
+	}
+	else if (health < 30)
+	{
+		color[1] = 0;
+	}
+	else
+	{
+		color[1] = (health - 30) / 30.0f;
+	}
+
+	RE_Draw_SetColor (color);
+
+	// put together a crosshair 
+	if (dot[0])
+		RE_Draw_StretchPicExt (x + cl.refdef.x + 0.5 * (cl.refdef.width - w), y + cl.refdef.y + 0.5 * (cl.refdef.height - h), w, h, 0, 0, 1, 1, dot);
+	if (circle[0])
+		RE_Draw_StretchPicExt (x + cl.refdef.x + 0.5 * (cl.refdef.width - w), y + cl.refdef.y + 0.5 * (cl.refdef.height - h), w, h, 0, 0, 1, 1, circle);
+	if (cross[0])
+		RE_Draw_StretchPicExt (x + cl.refdef.x + 0.5 * (cl.refdef.width - w), y + cl.refdef.y + 0.5 * (cl.refdef.height - h), w, h, 0, 0, 1, 1, cross);
+
+	RE_Draw_SetColor (NULL);
 }
 
 /*
@@ -477,13 +548,9 @@ static int entitycmpfnc(const entity_t *a, const entity_t *b)
 {
 	// all other models are sorted by model then skin
 	if (a->model == b->model)
-	{
 		return ((int)a->skin - (int)b->skin);
-	}
 	else
-	{
 		return ((int)a->model - (int)b->model);
-	}
 }
 
 void V_RenderView (float stereo_separation)
@@ -558,26 +625,15 @@ void V_RenderView (float stereo_separation)
 
 		cl.refdef.areabits = cl.frame.areabits;
 
-		if (!cl_add_entities->value)
-			r_numentities = 0;
-
-		if (!cl_add_particles->value)
-			r_numparticles = 0;
-
-		if (!cl_add_lights->value)
-			r_numdlights = 0;
-
-		if (!cl_add_blend->value)
-		{
-			VectorClear (cl.refdef.blend);
-		}
-
 		cl.refdef.num_entities = r_numentities;
 		cl.refdef.entities = r_entities;
+
 		cl.refdef.num_particles = r_numparticles;
 		cl.refdef.particles = r_particles;
+
 		cl.refdef.num_dlights = r_numdlights;
 		cl.refdef.dlights = r_dlights;
+
 		cl.refdef.lightstyles = r_lightstyles;
 
 		cl.refdef.rdflags = cl.frame.playerstate.rdflags;
@@ -622,8 +678,14 @@ void V_Init (void)
 	Cmd_AddCommand ("viewpos", V_Viewpos_f);
 
 	crosshair = Cvar_Get ("crosshair", "0", CVAR_ARCHIVE);
-	crosshair_scale = Cvar_Get("crosshair_scale", "-1", CVAR_ARCHIVE);
-
+	crosshairX = Cvar_Get ("crosshairX", "0", CVAR_ARCHIVE);
+	crosshairY = Cvar_Get ("crosshairY", "0", CVAR_ARCHIVE);
+	crosshairSize = Cvar_Get ("crosshairSize", "24", CVAR_ARCHIVE);
+	crosshairDot = Cvar_Get ("crosshairDot", "0", CVAR_ARCHIVE);
+	crosshairCircle = Cvar_Get ("crosshairCircle", "0", CVAR_ARCHIVE);
+	crosshairCross = Cvar_Get ("crosshairCross", "3", CVAR_ARCHIVE);
+	crosshairAlpha = Cvar_Get ("crosshairAlpha", "1.0", CVAR_ARCHIVE);
+	
 	cl_testblend = Cvar_Get ("cl_testblend", "0", 0);
 	cl_testparticles = Cvar_Get ("cl_testparticles", "0", 0);
 	cl_testentities = Cvar_Get ("cl_testentities", "0", 0);

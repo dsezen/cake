@@ -65,7 +65,7 @@ glmatrix	r_mvpmatrix;
 //
 // screen size info
 //
-refdef_t	r_newrefdef;
+refdef_t r_newrefdef;
 
 int		r_viewcluster, r_viewcluster2, r_oldviewcluster, r_oldviewcluster2;
 
@@ -82,7 +82,8 @@ cvar_t	*r_lefthand;
 
 cvar_t	*r_lightlevel;	// FIXME: This is a HACK to get the client's light level
 
-cvar_t	*gl_lightmap;
+cvar_t	*gl_showlightmap;
+cvar_t	*gl_shownormals;
 cvar_t	*gl_shadows;
 cvar_t	*gl_mode;
 cvar_t  *gl_customwidth;
@@ -90,7 +91,6 @@ cvar_t  *gl_customheight;
 cvar_t	*gl_customPixelAspect;
 cvar_t	*gl_dynamic;
 cvar_t  *gl_monolightmap;
-cvar_t	*gl_showtris;
 cvar_t	*gl_finish;
 cvar_t	*gl_clear;
 cvar_t	*gl_cull;
@@ -160,7 +160,7 @@ void R_DrawSingleEntity (entity_t *ent)
 			R_DrawSpriteModel (ent);
 			break;
 		default:
-			VID_Error (ERR_DROP, "Bad modeltype");
+			VID_Error (ERR_DROP, S_COLOR_RED "Bad modeltype");
 			break;
 		}
 	}
@@ -278,17 +278,6 @@ static void R_SetupFrame (void)
 
 	c_brush_polys = 0;
 	c_alias_polys = 0;
-
-	// clear out the portion of the screen that the NOWORLDMODEL defines
-	if (r_newrefdef.rdflags & RDF_NOWORLDMODEL)
-	{
-		GL_Enable (gl_state.statebits | SCISSOR_BIT);
-		glClearColor (0.3, 0.3, 0.3, 1);
-		glScissor (r_newrefdef.x, vid.height - r_newrefdef.height - r_newrefdef.y, r_newrefdef.width, r_newrefdef.height);
-		GL_Clear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		glClearColor (1, 0, 0.5, 0.5);
-		GL_Enable (gl_state.statebits & ~SCISSOR_BIT);
-	}
 }
 
 
@@ -411,7 +400,7 @@ void R_RenderView (refdef_t *fd)
 	r_newrefdef = *fd;
 
 	if (!r_worldmodel && !(r_newrefdef.rdflags & RDF_NOWORLDMODEL))
-		VID_Error (ERR_DROP, "R_RenderView: NULL worldmodel");
+		VID_Error (ERR_DROP, S_COLOR_RED "R_RenderView: NULL worldmodel");
 
 	if (r_speeds->value)
 	{
@@ -523,10 +512,10 @@ static void R_Register (void)
 	gl_customwidth = Cvar_Get("gl_customwidth", "1024", CVAR_ARCHIVE);
 	gl_customheight = Cvar_Get("gl_customheight", "768", CVAR_ARCHIVE);
 	gl_customPixelAspect = Cvar_Get("gl_customPixelAspect", "1", CVAR_ARCHIVE);
-	gl_lightmap = Cvar_Get ("gl_lightmap", "0", 0);
+	gl_showlightmap = Cvar_Get ("gl_showlightmap", "0", 0);
+	gl_shownormals = Cvar_Get ("gl_shownormals", "0", 0);
 	gl_shadows = Cvar_Get ("gl_shadows", "0", CVAR_ARCHIVE);
 	gl_dynamic = Cvar_Get ("gl_dynamic", "1", 0);
-	gl_showtris = Cvar_Get ("gl_showtris", "0", 0);
 	gl_finish = Cvar_Get ("gl_finish", "0", CVAR_ARCHIVE);
 	gl_clear = Cvar_Get ("gl_clear", "0", 0);
 	gl_cull = Cvar_Get ("gl_cull", "1", 0);
@@ -731,7 +720,7 @@ static void RMain_CheckExtension (char *ext)
 			return;
 		}
 	
-		VID_Error (ERR_FATAL, "RMain_CheckExtension : could not find %s", ext);
+		VID_Error (ERR_FATAL, S_COLOR_RED "RMain_CheckExtension : could not find %s", ext);
 		return;
 	}
 }
@@ -749,14 +738,14 @@ static qboolean RMain_CheckFor_DirectStateAccess(void)
 		if (!strcmp("GL_EXT_direct_state_access ", gl_config.extension_string))
 		{
 			// found it in our list
-			VID_Printf(PRINT_ALL, " ...found GL_EXT_direct_state_access\n");
+			VID_Printf(PRINT_ALL, S_COLOR_GREEN " ...found GL_EXT_direct_state_access\n");
 			return true;
 		}
 	}
 	else
 	{
 		// found it in glew's list
-		VID_Printf(PRINT_ALL, " ...found GL_EXT_direct_state_access\n");
+		VID_Printf(PRINT_ALL, S_COLOR_GREEN " ...found GL_EXT_direct_state_access\n");
 		return true;
 	}
 
@@ -768,7 +757,7 @@ static qboolean RMain_CheckFor_DirectStateAccess(void)
 		return false;
 	}
 
-	VID_Printf(PRINT_ALL, " ...emulating GL_EXT_direct_state_access\n");
+	VID_Printf(PRINT_ALL, S_COLOR_YELLOW " ...emulating GL_EXT_direct_state_access\n");
 	return true;
 }
 
@@ -784,7 +773,7 @@ static void RMain_CheckFor_GPUShader5(void)
 		if (!strcmp("GL_ARB_gpu_shader5 ", gl_config.extension_string))
 		{
 			// found it in our list
-			VID_Printf(PRINT_ALL, " ...found GL_ARB_gpu_shader5\n");
+			VID_Printf(PRINT_ALL, S_COLOR_GREEN " ...found GL_ARB_gpu_shader5\n");
 			gl_config.gl_ext_GPUShader5_support = true;
 			return;
 		}
@@ -792,12 +781,12 @@ static void RMain_CheckFor_GPUShader5(void)
 	else
 	{
 		// found it in glew's list
-		VID_Printf(PRINT_ALL, " ...found GL_ARB_gpu_shader5\n");
+		VID_Printf(PRINT_ALL, S_COLOR_GREEN " ...found GL_ARB_gpu_shader5\n");
 		gl_config.gl_ext_GPUShader5_support = true;
 		return;
 	}
 
-	VID_Printf(PRINT_ALL, " ...missing GL_ARB_gpu_shader5\n");
+	VID_Printf(PRINT_ALL, S_COLOR_RED " ...missing GL_ARB_gpu_shader5\n");
 	gl_config.gl_ext_GPUShader5_support = false;
 }
 
@@ -813,7 +802,7 @@ static void RMain_CheckFor_ComputeShader(void)
 		if (!strcmp("GL_ARB_compute_shader ", gl_config.extension_string))
 		{
 			// found it in our list
-			VID_Printf(PRINT_ALL, " ...found GL_ARB_compute_shader\n");
+			VID_Printf(PRINT_ALL, S_COLOR_GREEN " ...found GL_ARB_compute_shader\n");
 			gl_config.gl_ext_computeShader_support = true;
 			return;
 		}
@@ -821,12 +810,12 @@ static void RMain_CheckFor_ComputeShader(void)
 	else
 	{
 		// found it in glew's list
-		VID_Printf(PRINT_ALL, " ...found GL_ARB_compute_shader\n");
+		VID_Printf(PRINT_ALL, S_COLOR_GREEN " ...found GL_ARB_compute_shader\n");
 		gl_config.gl_ext_computeShader_support = true;
 		return;
 	}
 
-	VID_Printf(PRINT_ALL, " ...missing GL_ARB_compute_shader\n");
+	VID_Printf(PRINT_ALL, S_COLOR_RED " ...missing GL_ARB_compute_shader\n");
 	gl_config.gl_ext_computeShader_support = false;
 }
 
@@ -840,10 +829,10 @@ static int SetMode_impl(int mode, int fullscreen)
 	switch (err)
 	{
 		case RSERR_INVALID_FULLSCREEN:
-			VID_Printf(PRINT_ALL, "...WARNING: fullscreen unavailable in this mode\n");
+			VID_Printf(PRINT_ALL, S_COLOR_YELLOW "...WARNING: fullscreen unavailable in this mode\n");
 			return false;
 		case RSERR_INVALID_MODE:
-			VID_Printf(PRINT_ALL, "...WARNING: could not set the given mode (%d)\n", mode);
+			VID_Printf(PRINT_ALL, S_COLOR_YELLOW "...WARNING: could not set the given mode (%d)\n", mode);
 			return false;
 		default:
 			break;
@@ -867,13 +856,13 @@ static qboolean R_SetMode(void)
 	// try again, with the default screen resolution
 	if (gl_mode->integer != R_MODE_FALLBACK)
 	{
-		VID_Printf(PRINT_ALL, "Setting gl_mode %d failed, falling back on gl_mode %d\n", gl_mode->integer, R_MODE_FALLBACK);
+		VID_Printf(PRINT_ALL, S_COLOR_RED "Setting gl_mode %d failed, falling back on gl_mode %d\n", gl_mode->integer, R_MODE_FALLBACK);
 		if (SetMode_impl(R_MODE_FALLBACK, false))
 			goto success;
 	}
 
 	// yea this failed... fallback to software or something else
-	VID_Printf(PRINT_ALL, "GLimp_Init() - could not load OpenGL subsystem");
+	VID_Printf(PRINT_ALL, S_COLOR_RED "GLimp_Init() - could not load OpenGL subsystem");
 	return false;
 
 success:
@@ -916,13 +905,14 @@ success:
 	RMain_CheckExtension("GL_ARB_seamless_cube_map ");
 	RMain_CheckExtension("GL_ARB_uniform_buffer_object ");
 	RMain_CheckExtension("GL_ARB_separate_shader_objects ");
+	RMain_CheckExtension("GL_ARB_texture_gather ");
 
 	// we have to check for direct state access separate from the others
 	// due to weird issues across GPUs
 	if (!RMain_CheckFor_DirectStateAccess())
 	{
 		// we are buggggggged, get out of here and fallback to like software or something
-		VID_Printf(PRINT_ALL, "RMain_CheckExtension : unable to emulate GL_EXT_direct_state_access\n");
+		VID_Printf(PRINT_ALL, S_COLOR_RED "RMain_CheckExtension : unable to emulate GL_EXT_direct_state_access\n");
 		return false;
 	}
 
@@ -946,6 +936,8 @@ int RE_GL_Init (void)
 
 	R_Register ();
 
+	R_InitFreeType ();
+
 	// initialize OS-specific parts of OpenGL
 	if (!VID_Init_GL())
 		return -1;
@@ -953,7 +945,7 @@ int RE_GL_Init (void)
 	// create the window and set up the context
 	if (!R_SetMode())
 	{
-		VID_Printf (PRINT_ALL, "ref_gl::RE_GL_Init() - could not R_SetMode()\n");
+		VID_Printf (PRINT_ALL, S_COLOR_RED "ref_gl::RE_GL_Init() - could not R_SetMode()\n");
 		return -1;
 	}
 
@@ -1023,6 +1015,8 @@ void RE_GL_Shutdown (void)
 
 	R_ShutdownFBOs ();
 
+	R_DoneFreeType ();
+
 	// shut down OS specific OpenGL stuff like contexts, etc.
 	VID_Shutdown_GL(true);
 }
@@ -1084,12 +1078,14 @@ void GL_GFX_CoreInit(void)
 	RE_Draw_FadeScreen = RE_GL_Draw_FadeScreen;
 	RE_Draw_Fill = RE_GL_Draw_Fill;
 	RE_Draw_TileClear = RE_GL_Draw_TileClear;
-	RE_Draw_CharScaled = RE_GL_Draw_CharScaled;
+	RE_Draw_SetColor = RE_GL_Draw_SetColor;
 	RE_Draw_Char = RE_GL_Draw_Char;
 	RE_Draw_StretchPic = RE_GL_Draw_StretchPic;
-	RE_Draw_PicScaled = RE_GL_Draw_PicScaled;
+	RE_Draw_StretchPicExt = RE_GL_Draw_StretchPicExt;
 	RE_Draw_Pic = RE_GL_Draw_Pic;
 	RE_Draw_GetPicSize = RE_GL_Draw_GetPicSize;
+
+	RE_MarkFragments = RE_GL_MarkFragments;
 
 	RE_BeginRegistration = RE_GL_BeginRegistration;
 	RE_RegisterModel = RE_GL_RegisterModel;
@@ -1097,6 +1093,7 @@ void GL_GFX_CoreInit(void)
 	RE_Draw_RegisterPic = RE_GL_Draw_RegisterPic;
 	RE_SetSky = RE_GL_SetSky;
 	RE_SetFog = RE_GL_SetFog;
+	RE_RegisterFont = RE_GL_RegisterFont;
 	RE_EndRegistration = RE_GL_EndRegistration;
 }
 

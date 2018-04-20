@@ -50,166 +50,6 @@ char *svc_strings[256] =
 
 //=============================================================================
 
-void CL_DownloadFileName (char *dest, int destlen, char *fn)
-{
-	if (strncmp (fn, "players", 7) == 0)
-		Com_sprintf (dest, destlen, "%s/%s", BASEDIRNAME, fn);
-	else
-		Com_sprintf (dest, destlen, "%s/%s", FS_Gamedir(), fn);
-}
-
-/*
-===============
-CL_CheckOrDownloadFile
-
-Returns true if the file exists, otherwise it attempts
-to start a download from the server.
-===============
-*/
-qboolean CL_CheckOrDownloadFile (char *filename)
-{
-	FILE 	*fp;
-	char	*p;
-	char	name[MAX_OSPATH];
-
-	if (strstr (filename, ".."))
-	{
-		Com_Printf ("Refusing to download a path with ..\n");
-		return true;
-	}
-
-	if (FS_LoadFile (filename, NULL) != -1)
-	{
-		// it exists, no need to download
-		return true;
-	}
-
-	if (CL_QueueHTTPDownload(filename))
-	{
-		// we return true so that the precache check keeps feeding us more files.
-		// Since we have multiple HTTP connections we want to minimize latency
-		// and be constantly sending requests, not one at a time.
-		return true;
-	}
-
-	strncpy (cls.downloadname, filename, sizeof(cls.downloadname) - 1);
-	while ((p = strstr(cls.downloadname, "\\")))
-		*p = '/';
-
-	// download to a temp name, and only rename
-	// to the real name when done, so if interrupted
-	// a runt file wont be left
-	COM_StripExtension (cls.downloadname, cls.downloadtempname);
-	strcat (cls.downloadtempname, ".tmp");
-
-	// check to see if we already have a tmp for this file, if so, try to resume
-	// open the file if not opened yet
-	CL_DownloadFileName (name, sizeof (name), cls.downloadtempname);
-
-	fp = fopen (name, "r+b");
-	if (fp) // it exists
-	{
-		int len;
-		fseek (fp, 0, SEEK_END);
-		len = ftell (fp);
-
-		cls.download = fp;
-
-		// give the server an offset to start the download
-		Com_Printf ("Resuming %s\n", cls.downloadname);
-		MSG_WriteByte (&cls.netchan.message, clc_stringcmd);
-		MSG_WriteString (&cls.netchan.message, va ("download %s %i", cls.downloadname, len));
-	}
-	else
-	{
-		Com_Printf ("Downloading %s\n", cls.downloadname);
-		MSG_WriteByte (&cls.netchan.message, clc_stringcmd);
-		MSG_WriteString (&cls.netchan.message, va ("download %s", cls.downloadname));
-	}
-
-	cls.forcePacket = true;
-
-	return false;
-}
-
-/*
-===============
-CL_Download_f
-
-Request a download from the server
-===============
-*/
-void CL_Download_f (void)
-{
-	char	name[MAX_OSPATH];
-	FILE	*fp;
-	char	*p;
-	char 	filename[MAX_OSPATH];
-
-	if (Cmd_Argc() != 2)
-	{
-		Com_Printf ("Usage: download <filename>\n");
-		return;
-	}
-
-	Com_sprintf (filename, sizeof (filename), "%s", Cmd_Argv (1));
-
-	if (strstr (filename, ".."))
-	{
-		Com_Printf ("Refusing to download a path with .. (%s)\n", filename);
-		return;
-	}
-
-	if (cls.state <= ca_connecting)
-	{
-		Com_Printf ("Not connected.\n");
-		return;
-	}
-
-	if (FS_LoadFile (filename, NULL) != -1)
-	{
-		// it exists, no need to download
-		Com_Printf ("File already exists.\n");
-		return;
-	}
-
-	strncpy (cls.downloadname, filename, sizeof(cls.downloadname)-1);
-	while ((p = strstr(cls.downloadname, "\\")))
-		*p = '/';
-
-	// download to a temp name, and only rename
-	// to the real name when done, so if interrupted
-	// a runt file wont be left
-	COM_StripExtension (cls.downloadname, cls.downloadtempname);
-	strcat (cls.downloadtempname, ".tmp");
-
-	// check to see if we already have a tmp for this file, if so, try to resume
-	// open the file if not opened yet
-	CL_DownloadFileName(name, sizeof(name), cls.downloadtempname);
-
-	fp = fopen (name, "r+b");
-	if (fp) // it exists
-	{
-		int len;		
-		fseek(fp, 0, SEEK_END);
-		len = ftell(fp);
-
-		cls.download = fp;
-
-		// give the server an offset to start the download
-		Com_Printf ("Resuming %s\n", cls.downloadname);
-		MSG_WriteByte (&cls.netchan.message, clc_stringcmd);
-		MSG_WriteString (&cls.netchan.message, va("download %s %i", cls.downloadname, len));
-	}
-	else
-	{
-		Com_Printf ("Downloading %s\n", cls.downloadname);
-
-		MSG_WriteByte (&cls.netchan.message, clc_stringcmd);
-		MSG_WriteString (&cls.netchan.message, va ("download %s", cls.downloadname));
-	}
-}
-
 /*
 ======================
 CL_RegisterSounds
@@ -243,83 +83,22 @@ A download message has been received from the server
 */
 void CL_ParseDownload (void)
 {
-	int		size, percent;
-	char	name[MAX_OSPATH];
-	int		r;
+	int size, percent;
+	byte *data;
 
 	// read the data
 	size = MSG_ReadShort (&net_message);
 	percent = MSG_ReadByte (&net_message);
-
 	if (size == -1)
 	{
-		Com_Printf ("Server does not have this file.\n");
-
-		if (cls.download)
-		{
-			// if here, we tried to resume a file but the server said no
-			fclose (cls.download);
-			cls.download = NULL;
-		}
-
-		cls.failed_download = true;
-		CL_RequestNextDownload ();
+		CL_HandleDownload (NULL, size, percent);
 		return;
 	}
 
-	// open the file if not opened yet
-	if (!cls.download)
-	{
-		CL_DownloadFileName (name, sizeof (name), cls.downloadtempname);
-
-		FS_CreatePath (name);
-
-		cls.download = fopen (name, "wb");
-		if (!cls.download)
-		{
-			net_message.readcount += size;
-			Com_Printf ("Failed to open %s\n", cls.downloadtempname);
-			cls.failed_download = true;
-			CL_RequestNextDownload ();
-			return;
-		}
-	}
-
-	fwrite (net_message.data + net_message.readcount, 1, size, cls.download);
+	data = net_message.data + net_message.readcount;
 	net_message.readcount += size;
 
-	if (percent != 100)
-	{
-		// request next block
-		cls.downloadpercent = percent;
-
-		MSG_WriteByte (&cls.netchan.message, clc_stringcmd);
-		SZ_Print (&cls.netchan.message, "nextdl");
-		cls.forcePacket = true;
-	}
-	else
-	{
-		char	oldn[MAX_OSPATH];
-		char	newn[MAX_OSPATH];
-
-		fclose (cls.download);
-
-		// rename the temp file to it's final name
-		CL_DownloadFileName (oldn, sizeof (oldn), cls.downloadtempname);
-		CL_DownloadFileName (newn, sizeof (newn), cls.downloadname);
-		r = rename (oldn, newn);
-
-		if (r)
-			Com_Printf ("failed to rename.\n");
-
-		cls.failed_download = false;
-		cls.download = NULL;
-		cls.downloadpercent = 0;
-		cls.downloadposition = 0;
-
-		// get another file if needed
-		CL_RequestNextDownload ();
-	}
+	CL_HandleDownload (data, size, percent);
 }
 
 
@@ -385,9 +164,7 @@ void CL_ParseServerData (void)
 	}
 	else
 	{
-		// seperate the printfs so the server message can have a color
-		Com_Printf ("\n\n\35\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\36\37\n\n");
-		Com_Printf ("%c%s\n", 2, str);
+		Com_Printf("\n%s\n", str);
 
 		// need to prep refresh at next oportunity
 		cl.refresh_prepped = false;
@@ -413,126 +190,159 @@ void CL_ParseBaseline (void)
 	CL_ParseDelta (&nullstate, es, newnum, bits);
 }
 
+/*
+================
+CL_ParsePlayerSkin
+
+Breaks up playerskin into name (optional), model and skin components.
+If model or skin are found to be invalid, replaces them with sane defaults.
+================
+*/
+void CL_ParsePlayerSkin (char *name, char *model, char *skin, char *s)
+{
+	size_t len;
+	char *t;
+
+	// configstring parsing guarantees that playerskins can never
+	// overflow, but still check the length to be entirely fool-proof
+	len = strlen (s);
+	if (len >= MAX_QPATH)
+		Com_Error(ERR_DROP, "%s: oversize playerskin", __func__);
+
+	// isolate the player's name
+	t = strchr(s, '\\');
+	if (t)
+	{
+		len = t - s;
+		strcpy(model, t + 1);
+	}
+	else
+	{
+		len = 0;
+		strcpy(model, s);
+	}
+
+	// copy the player's name
+	if (name)
+	{
+		memcpy(name, s, len);
+		name[len] = 0;
+	}
+
+	// isolate the model name
+	t = strchr (model, '/');
+	if (!t)
+		t = strchr (model, '\\');
+	if (!t)
+		t = model;
+	if (t == model)
+		goto default_model;
+	*t++ = 0;
+
+	// apply restrictions on skins
+	if (cl_noskins->integer == 2)
+		goto default_skin;
+	if (cl_noskins->integer)
+		goto default_model;
+
+	// isolate the skin name
+	strcpy (skin, t);
+	return;
+
+default_skin:
+	if (!Q_stricmp(model, "female"))
+	{
+		strcpy (model, "female");
+		strcpy (skin, "athena");
+	}
+	else
+	{
+default_model:
+		strcpy (model, "male");
+		strcpy (skin, "grunt");
+	}
+}
 
 /*
 ================
 CL_LoadClientinfo
-
 ================
 */
 void CL_LoadClientinfo (clientinfo_t *ci, char *s)
 {
 	int i;
-	char		*t;
-	char		model_name[MAX_QPATH];
-	char		skin_name[MAX_QPATH];
-	char		model_filename[MAX_QPATH];
-	char		skin_filename[MAX_QPATH];
-	char		weapon_filename[MAX_QPATH];
+	char model_name[MAX_QPATH];
+	char skin_name[MAX_QPATH];
+	char model_filename[MAX_QPATH];
+	char skin_filename[MAX_QPATH];
+	char weapon_filename[MAX_QPATH];
 
-	strncpy (ci->cinfo, s, sizeof (ci->cinfo));
-	ci->cinfo[sizeof (ci->cinfo)-1] = 0;
+	CL_ParsePlayerSkin (ci->name, model_name, skin_name, s);
 
-	// isolate the player's name
-	strncpy (ci->name, s, sizeof (ci->name));
-	ci->name[sizeof (ci->name)-1] = 0;
-	t = strstr (s, "\\");
-
-	if (t)
+	// model file
+	Q_concat (model_filename, sizeof(model_filename), "players/", model_name, "/tris.md2", NULL);
+	ci->model = RE_RegisterModel (model_filename);
+	if (!ci->model && Q_stricmp(model_name, "male"))
 	{
-		ci->name[t-s] = 0;
-		s = t + 1;
+		strcpy (model_name, "male");
+		strcpy (model_filename, "players/male/tris.md2");
+		ci->model = RE_RegisterModel (model_filename);
 	}
 
-	if (cl_noskins->value || *s == 0)
+	// skin file
+	Q_concat (skin_filename, sizeof(skin_filename), "players/", model_name, "/", skin_name, ".pcx", NULL);
+	ci->skin = RE_RegisterSkin (skin_filename);
+
+	// if we don't have the skin and the model was female,
+	// see if athena skin exists
+	if (!ci->skin && !Q_stricmp(model_name, "female"))
 	{
-		Com_sprintf (model_filename, sizeof (model_filename), "players/male/tris.md2");
-		Com_sprintf (weapon_filename, sizeof (weapon_filename), "players/male/weapon.md2");
-		Com_sprintf (skin_filename, sizeof (skin_filename), "players/male/grunt.pcx");
-		Com_sprintf (ci->iconname, sizeof (ci->iconname), "/players/male/grunt_i.pcx");
-		ci->model = RE_RegisterModel (model_filename);
-		memset (ci->weaponmodel, 0, sizeof (ci->weaponmodel));
-		ci->weaponmodel[0] = RE_RegisterModel (weapon_filename);
+		strcpy (skin_name, "athena");
+		strcpy (skin_filename, "players/female/athena.pcx");
 		ci->skin = RE_RegisterSkin (skin_filename);
-		ci->icon = RE_Draw_RegisterPic (ci->iconname);
 	}
-	else
+
+	// if we don't have the skin and the model wasn't male,
+	// see if the male has it (this is for CTF's skins)
+	if (!ci->skin && Q_stricmp(model_name, "male"))
 	{
-		// isolate the model name
-		strcpy (model_name, s);
-		t = strstr (model_name, "/");
-
-		if (!t)
-			t = strstr (model_name, "\\");
-
-		if (!t)
-			t = model_name;
-
-		*t = 0;
-
-		// isolate the skin name
-		strcpy (skin_name, s + strlen (model_name) + 1);
-
-		// model file
-		Com_sprintf (model_filename, sizeof (model_filename), "players/%s/tris.md2", model_name);
+		// change model to male
+		strcpy (model_name, "male");
+		strcpy (model_filename, "players/male/tris.md2");
 		ci->model = RE_RegisterModel (model_filename);
 
-		if (!ci->model)
-		{
-			strcpy (model_name, "male");
-			Com_sprintf (model_filename, sizeof (model_filename), "players/male/tris.md2");
-			ci->model = RE_RegisterModel (model_filename);
-		}
-
-		// skin file
-		Com_sprintf (skin_filename, sizeof (skin_filename), "players/%s/%s.pcx", model_name, skin_name);
+		// see if the skin exists for the male model
+		Q_concat (skin_filename, sizeof(skin_filename), "players/male/", skin_name, ".pcx", NULL);
 		ci->skin = RE_RegisterSkin (skin_filename);
+	}
 
-		// if we don't have the skin and the model wasn't male,
-		// see if the male has it (this is for CTF's skins)
-		if (!ci->skin && Q_stricmp (model_name, "male"))
+	// if we still don't have a skin, it means that the male model didn't have it, so default to grunt
+	if (!ci->skin)
+	{
+		// see if the skin exists for the male model
+		strcpy (skin_name, "grunt");
+		strcpy (skin_filename, "players/male/grunt.pcx");
+		ci->skin = RE_RegisterSkin (skin_filename);
+	}
+
+	// weapon file
+	for (i = 0; i < num_cl_weaponmodels; i++)
+	{
+		Q_concat (weapon_filename, sizeof(weapon_filename), "players/", model_name, "/", cl_weaponmodels[i], NULL);
+		ci->weaponmodel[i] = RE_RegisterModel (weapon_filename);
+
+		if (!ci->weaponmodel[i] && Q_stricmp(model_name, "male"))
 		{
-			// change model to male
-			strcpy (model_name, "male");
-			Com_sprintf (model_filename, sizeof (model_filename), "players/male/tris.md2");
-			ci->model = RE_RegisterModel (model_filename);
-
-			// see if the skin exists for the male model
-			Com_sprintf (skin_filename, sizeof (skin_filename), "players/%s/%s.pcx", model_name, skin_name);
-			ci->skin = RE_RegisterSkin (skin_filename);
-		}
-
-		// if we still don't have a skin, it means that the male model didn't have
-		// it, so default to grunt
-		if (!ci->skin)
-		{
-			// see if the skin exists for the male model
-			Com_sprintf (skin_filename, sizeof (skin_filename), "players/%s/grunt.pcx", model_name, skin_name);
-			ci->skin = RE_RegisterSkin (skin_filename);
-		}
-
-		// weapon file
-		for (i = 0; i < num_cl_weaponmodels; i++)
-		{
-			Com_sprintf (weapon_filename, sizeof (weapon_filename), "players/%s/%s", model_name, cl_weaponmodels[i]);
+			// try male
+			Q_concat (weapon_filename, sizeof(weapon_filename), "players/male/", cl_weaponmodels[i], NULL);
 			ci->weaponmodel[i] = RE_RegisterModel (weapon_filename);
-
-			if (!ci->weaponmodel[i] && strcmp (model_name, "cyborg") == 0)
-			{
-				// try male
-				Com_sprintf (weapon_filename, sizeof (weapon_filename), "players/male/%s", cl_weaponmodels[i]);
-				ci->weaponmodel[i] = RE_RegisterModel (weapon_filename);
-			}
-
-			if (!cl_vwep->value)
-				break; // only one when vwep is off
 		}
-
-		// icon file
-		Com_sprintf (ci->iconname, sizeof (ci->iconname), "/players/%s/%s_i.pcx", model_name, skin_name);
-		ci->icon = RE_Draw_RegisterPic (ci->iconname);
 	}
 
+	// icon file
+	Q_concat (ci->iconname, sizeof(ci->iconname), "/players/", model_name, "/", skin_name, "_i.pcx", NULL);
+	ci->icon = RE_Draw_RegisterPic (ci->iconname);
+	
 	// must have loaded all data types to be valud
 	if (!ci->skin || !ci->icon || !ci->model || !ci->weaponmodel[0])
 	{
@@ -594,7 +404,19 @@ void CL_ParseConfigString (void)
 	else if (i == CS_CDTRACK)
 	{
 		if (cl.refresh_prepped)
-			BGM_PlayCDtrack (atoi (cl.configstrings[CS_CDTRACK]), true);
+		{
+#ifdef USE_CODEC_OGG
+			if ((int)strtol(cl.configstrings[CS_CDTRACK], (char **)NULL, 10) < 10)
+			{
+				char tmp[3] = "0";
+				OGG_ParseCmd (strcat(tmp, cl.configstrings[CS_CDTRACK]));
+			}
+			else
+			{
+				OGG_ParseCmd (cl.configstrings[CS_CDTRACK]);
+			}
+#endif
+		}
 	}
 	else if (i >= CS_MODELS && i < CS_MODELS + MAX_MODELS)
 	{
@@ -773,12 +595,8 @@ void CL_ParseServerMessage (void)
 		case svc_reconnect:
 			Com_Printf ("Server disconnected, reconnecting\n");
 
-			if (cls.download)
-			{
-				//ZOID, close download
-				fclose (cls.download);
-				cls.download = NULL;
-			}
+			// stop downloads
+			CL_CleanupDownloads ();
 
 			cls.state = ca_connecting;
 			cls.connect_time = -99999;	// CL_CheckForResend() will fire immediately
@@ -786,15 +604,9 @@ void CL_ParseServerMessage (void)
 
 		case svc_print:
 			i = MSG_ReadByte (&net_message);
-
 			if (i == PRINT_CHAT)
-			{
 				S_StartLocalSound ("misc/talk.wav");
-				con.ormask = 128;
-			}
-
 			Com_Printf ("%s", MSG_ReadString (&net_message));
-			con.ormask = 0;
 			break;
 
 		case svc_centerprint:

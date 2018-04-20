@@ -424,7 +424,7 @@ retry_send:;
 	// it is necessary for this to be after the WriteEntities
 	// so that entity references will be current
 	if (client->datagram.overflowed)
-		Com_Printf ("WARNING: datagram overflowed for %s\n", client->name);
+		Com_Printf (S_COLOR_YELLOW "WARNING: datagram overflowed for %s\n", client->name);
 	else SZ_Write (&msg, client->datagram.data, client->datagram.cursize);
 
 	SZ_Clear (&client->datagram);
@@ -439,7 +439,7 @@ retry_send:;
 		else
 		{
 			// must have room left for the packet header
-			Com_Printf ("WARNING: msg overflowed for %s\n", client->name);
+			Com_Printf (S_COLOR_YELLOW "WARNING: msg overflowed for %s\n", client->name);
 			SZ_Clear (&msg);
 		}
 	}
@@ -463,8 +463,8 @@ void SV_DemoCompleted (void)
 {
 	if (sv.demofile)
 	{
-		fclose (sv.demofile);
-		sv.demofile = NULL;
+		FS_FCloseFile (sv.demofile);
+		sv.demofile = 0;
 	}
 
 	SV_Nextserver ();
@@ -524,20 +524,20 @@ void SV_SendClientMessages (void)
 	if (sv.state == ss_demo && sv.demofile)
 	{
 		if (sv_paused->value)
+		{
 			msglen = 0;
+		}
 		else
 		{
 			// get the next message
-			r = fread (&msglen, 4, 1, sv.demofile);
-
-			if (r != 1)
+			r = FS_FRead (&msglen, 4, 1, sv.demofile);
+			if (r != 4)
 			{
 				SV_DemoCompleted ();
 				return;
 			}
 
 			msglen = LittleLong (msglen);
-
 			if (msglen == -1)
 			{
 				SV_DemoCompleted ();
@@ -547,9 +547,8 @@ void SV_SendClientMessages (void)
 			if (msglen > MAX_MSGLEN)
 				Com_Error (ERR_DROP, "SV_SendClientMessages: msglen > MAX_MSGLEN");
 
-			r = fread (msgbuf, msglen, 1, sv.demofile);
-
-			if (r != 1)
+			r = FS_FRead (msgbuf, msglen, 1, sv.demofile);
+			if (r != msglen)
 			{
 				SV_DemoCompleted ();
 				return;

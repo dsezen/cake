@@ -42,8 +42,7 @@ void SV_BeginDemoserver (void)
 	char		name[MAX_OSPATH];
 
 	Com_sprintf (name, sizeof (name), "demos/%s", sv.name);
-	FS_FOpenFile (name, &sv.demofile);
-
+	FS_FOpenFile (name, &sv.demofile, FS_READ, false);
 	if (!sv.demofile)
 		Com_Error (ERR_DROP, "Couldn't open %s\n", name);
 }
@@ -66,7 +65,7 @@ void SV_New_f (void)
 
 	if (sv_client->state != cs_connected)
 	{
-		Com_Printf ("New not valid -- already spawned\n");
+		Com_Printf (S_COLOR_RED "New not valid -- already spawned\n");
 		return;
 	}
 
@@ -131,14 +130,14 @@ void SV_Configstrings_f (void)
 
 	if (sv_client->state != cs_connected)
 	{
-		Com_Printf ("configstrings not valid -- already spawned\n");
+		Com_Printf (S_COLOR_RED "configstrings not valid -- already spawned\n");
 		return;
 	}
 
 	// handle the case of a level changing while a client was connecting
 	if (atoi (Cmd_Argv (1)) != svs.spawncount)
 	{
-		Com_Printf ("SV_Configstrings_f from different level\n");
+		Com_Printf (S_COLOR_RED "SV_Configstrings_f from different level\n");
 		SV_New_f ();
 		return;
 	}
@@ -189,14 +188,14 @@ void SV_Baselines_f (void)
 
 	if (sv_client->state != cs_connected)
 	{
-		Com_Printf ("baselines not valid -- already spawned\n");
+		Com_Printf (S_COLOR_RED "baselines not valid -- already spawned\n");
 		return;
 	}
 
 	// handle the case of a level changing while a client was connecting
 	if (atoi (Cmd_Argv (1)) != svs.spawncount)
 	{
-		Com_Printf ("SV_Baselines_f from different level\n");
+		Com_Printf (S_COLOR_RED "SV_Baselines_f from different level\n");
 		SV_New_f ();
 		return;
 	}
@@ -247,7 +246,7 @@ void SV_Begin_f (void)
 	// handle the case of a level changing while a client was connecting
 	if (atoi (Cmd_Argv (1)) != svs.spawncount)
 	{
-		Com_Printf ("SV_Begin_f from different level\n");
+		Com_Printf (S_COLOR_RED "SV_Begin_f from different level\n");
 		SV_New_f ();
 		return;
 	}
@@ -315,7 +314,9 @@ void SV_BeginDownload_f (void)
 	extern	cvar_t *allow_download_models;
 	extern	cvar_t *allow_download_sounds;
 	extern	cvar_t *allow_download_maps;
-	extern	int		file_from_pak; // ZOID did file come from pak?
+	extern  cvar_t *allow_download_pics;
+	extern  cvar_t *allow_download_textures;
+	extern	qboolean file_from_pak; // did file come from pak?
 	int offset = 0;
 
 	name = Cmd_Argv (1);
@@ -323,9 +324,8 @@ void SV_BeginDownload_f (void)
 	if (Cmd_Argc() > 2)
 		offset = atoi (Cmd_Argv (2)); // downloaded offset
 
-	// hacked by zoid to allow more conrol over download
 	// first off, no .. or global allow check
-	if (strstr (name, "..") || !allow_download->value
+	if (strstr (name, "..") || strstr(name, "\\") || strstr(name, ":") || !allow_download->value
 			// leading dot is no good
 			|| *name == '.'
 			// leading slash bad as well, must be in subdir
@@ -338,6 +338,11 @@ void SV_BeginDownload_f (void)
 			|| (strncmp (name, "sound/", 6) == 0 && !allow_download_sounds->value)
 			// now maps (note special case for maps, must not be in pak)
 			|| (strncmp (name, "maps/", 6) == 0 && !allow_download_maps->value)
+			// now pics
+			|| (strncmp(name, "pics/", 6) == 0 && !allow_download_pics->value)
+			// now textures
+			|| (strncmp(name, "env/", 6) == 0 && !allow_download_textures->value)
+			|| (strncmp(name, "textures/", 6) == 0 && !allow_download_textures->value)
 			// MUST be in a subdirectory
 			|| !strstr (name, "/"))
 	{
@@ -347,7 +352,6 @@ void SV_BeginDownload_f (void)
 		MSG_WriteByte (&sv_client->netchan.message, 0);
 		return;
 	}
-
 
 	if (sv_client->download)
 		FS_FreeFile (sv_client->download);
@@ -359,8 +363,7 @@ void SV_BeginDownload_f (void)
 		sv_client->downloadcount = sv_client->downloadsize;
 
 	if (!sv_client->download
-			// special check for maps, if it came from a pak file, don't allow
-			// download ZOID
+			// special check for maps, if it came from a pak file, don't allow the download
 			|| (strncmp (name, "maps/", 5) == 0 && file_from_pak))
 	{
 		Com_DPrintf ("Couldn't download %s to %s\n", name, sv_client->name);
@@ -569,7 +572,7 @@ void SV_ExecuteClientMessage (client_t *cl)
 	{
 		if (net_message.readcount > net_message.cursize)
 		{
-			Com_Printf ("SV_ReadClientMessage: badread\n");
+			Com_Printf (S_COLOR_RED "SV_ReadClientMessage: badread\n");
 			SV_DropClient (cl);
 			return;
 		}
@@ -582,7 +585,7 @@ void SV_ExecuteClientMessage (client_t *cl)
 		switch (c)
 		{
 		default:
-			Com_Printf ("SV_ReadClientMessage: unknown command char\n");
+			Com_Printf (S_COLOR_RED "SV_ReadClientMessage: unknown command char\n");
 			SV_DropClient (cl);
 			return;
 

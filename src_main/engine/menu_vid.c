@@ -56,24 +56,147 @@ static menulist_s 		s_postprocessing_list;
 static menuaction_s		s_defaults_action;
 static menuaction_s 	s_apply_action;
 
-static int GetCustomValue(menulist_s *list)
-{
-	static menulist_s *last;
-	static int i;
+static char *builtinResolutions[] = {
+	"320x240",
+	"400x300",
+	"512x384",
+	"640x400",
+	"640x480",
+	"800x500",
+	"800x600",
+	"960x720",
+	"1024x480",
+	"1024x640",
+	"1024x768",
+	"1152x768",
+	"1152x864",
+	"1280x800",
+	"1280x720",
+	"1280x960",
+	"1280x1024",
+	"1366x768",
+	"1440x900",
+	"1600x1200",
+	"1680x1050",
+	"1920x1080",
+	"1920x1200",
+	"2048x1536",
+	"3440x1440",
+	"3840x2160",
+	NULL
+};
 
-	if (list != last)
+#define MAX_RESOLUTIONS	32
+
+static char     resbuf[MAX_STRING_CHARS];
+static char		*detectedResolutions[MAX_RESOLUTIONS];
+
+static char		**resolutions = builtinResolutions;
+static qboolean resolutionsDetected = false;
+
+/*
+=================
+VID_Menu_FindBuiltinResolution
+=================
+*/
+static int VID_Menu_FindBuiltinResolution(int mode)
+{
+	int i;
+
+	if (!resolutionsDetected)
+		return mode;
+
+	if (mode < 0)
+		return -1;
+
+	for (i = 0; builtinResolutions[i]; i++)
 	{
-		last = list;
-		i = list->curvalue;
-		do
-		{
-			i++;
-		}
-		while (list->itemnames[i]);
-		i--;
+		if (!Q_stricmp(builtinResolutions[i], detectedResolutions[mode]))
+			return i;
 	}
 
-	return i;
+	return -1;
+}
+
+/*
+=================
+VID_Menu_FindDetectedResolution
+=================
+*/
+static int VID_Menu_FindDetectedResolution(int mode)
+{
+	int i;
+
+	if (!resolutionsDetected)
+		return mode;
+
+	if (mode < 0)
+		return -1;
+
+	for (i = 0; detectedResolutions[i]; i++)
+	{
+		if (!Q_stricmp (builtinResolutions[mode], detectedResolutions[i]))
+			return i;
+	}
+
+	return -1;
+}
+
+/*
+=================
+VID_Menu_GetResolutions
+=================
+*/
+static void VID_Menu_GetResolutions(void)
+{
+	Q_strlcpy (resbuf, Cvar_VariableString("r_availableModes"), sizeof(resbuf));
+	if (*resbuf)
+	{
+		char           *s = resbuf;
+		unsigned int    i = 0;
+
+		while (s && i < sizeof(detectedResolutions) / sizeof(detectedResolutions[0]) - 1)
+		{
+			detectedResolutions[i++] = s;
+			s = strchr(s, ' ');
+			if (s)
+				*s++ = '\0';
+		}
+		detectedResolutions[i] = NULL;
+		if (i > 0)
+		{
+			resolutions = detectedResolutions;
+			resolutionsDetected = true;
+		}
+	}
+}
+
+/*
+=================
+VID_Menu_InitCvars
+=================
+*/
+static void VID_Menu_InitCvars (void)
+{
+	// make sure are cvars have some values
+	if (!gl_mode)
+		gl_mode = Cvar_Get("gl_mode", "10", 0);
+	if (!fov)
+		fov = Cvar_Get("fov", "90", CVAR_USERINFO | CVAR_ARCHIVE);
+	if (!vid_gamma)
+		vid_gamma = Cvar_Get("vid_gamma", "1.0", CVAR_ARCHIVE);
+	if (!vid_contrast)
+		vid_contrast = Cvar_Get("vid_contrast", "1.0", CVAR_ARCHIVE);
+	if (!gl_swapinterval)
+		gl_swapinterval = Cvar_Get("gl_swapinterval", "1", CVAR_ARCHIVE);
+	if (!gl_textureanisotropy)
+		gl_textureanisotropy = Cvar_Get("gl_textureanisotropy", "0", CVAR_ARCHIVE);
+	if (!r_ssao)
+		r_ssao = Cvar_Get("r_ssao", "1", CVAR_ARCHIVE);
+	if (!r_postprocessing)
+		r_postprocessing = Cvar_Get("r_postprocessing", "1", CVAR_ARCHIVE);
+	if (!r_fxaa)
+		r_fxaa = Cvar_Get("r_fxaa", "0", CVAR_ARCHIVE);
 }
 
 static void BrightnessCallback (void *s)
@@ -113,6 +236,36 @@ static void AnisotropicCallback(void *s)
 	}
 }
 
+static void VideoModeCallback(void *s)
+{
+	if (s_mode_list.curvalue < 0)
+	{
+		if (resolutionsDetected)
+		{
+			int i;
+			char buf[MAX_STRING_CHARS];
+			Cvar_VariableStringBuffer("gl_customwidth", buf, sizeof(buf) - 2);
+			buf[strlen(buf) + 1] = 0;
+			buf[strlen(buf)] = 'x';
+			Cvar_VariableStringBuffer("gl_customheight", buf + strlen(buf), sizeof(buf) - strlen(buf));
+			for (i = 0; detectedResolutions[i]; ++i)
+			{
+				if (!Q_stricmp(buf, detectedResolutions[i]))
+				{
+					s_mode_list.curvalue = i;
+					break;
+				}
+			}
+			if (s_mode_list.curvalue < 0)
+				s_mode_list.curvalue = 0;
+		}
+		else
+		{
+			s_mode_list.curvalue = 10;
+		}
+	}
+}
+
 static void ResetDefaults (void *unused)
 {
 	VID_MenuInit ();
@@ -122,19 +275,35 @@ static void ApplyChanges (void *unused)
 {
 	qboolean restart = false;
 
-	// custom mode
-	if (s_mode_list.curvalue != GetCustomValue(&s_mode_list))
+	// video mode
+	if (resolutionsDetected)
 	{
-		// Restarts automatically
-		Cvar_SetValue("gl_mode", s_mode_list.curvalue);
+		// search for builtin mode that matches the detected mode
+		int mode;
+
+		if (s_mode_list.curvalue == -1 || s_mode_list.curvalue >= sizeof(detectedResolutions) / sizeof(detectedResolutions[0]))
+			s_mode_list.curvalue = 0;
+
+		mode = VID_Menu_FindBuiltinResolution (s_mode_list.curvalue);
+		if (mode == -1)
+		{
+			char w[16], h[16];
+
+			Q_strlcpy (w, detectedResolutions[s_mode_list.curvalue], sizeof(w));
+			*strchr(w, 'x') = 0;
+			Q_strlcpy (h, strchr(detectedResolutions[s_mode_list.curvalue], 'x') + 1, sizeof(h));
+			Cvar_Set ("gl_customwidth", w);
+			Cvar_Set ("gl_customheight", h);
+		}
+
+		Cvar_SetValue ("gl_mode", mode);
 	}
 	else
 	{
-		// Restarts automatically
-		Cvar_SetValue("gl_mode", -1);
+		Cvar_SetValue ("gl_mode", s_mode_list.curvalue);
 	}
 
-	// fullscreen restarts automatically
+	// fullscreen
 	Cvar_SetValue ("vid_fullscreen", s_fs_box.curvalue);
 
 	// vertical sync
@@ -159,9 +328,7 @@ static void ApplyChanges (void *unused)
 
 	// issue the restart if neccessary
 	if (restart)
-	{
 		Cbuf_AddText("vid_restart\n");
-	}
 
 	M_ForceMenuOff ();
 }
@@ -173,12 +340,8 @@ VID_MenuDraw
 */
 void VID_MenuDraw (menuframework_s *self)
 {
-	int w, h;
-	float scale = SCR_GetMenuScale();
-
 	// draw the banner
-	RE_Draw_GetPicSize (&w, &h, "m_banner_video");
-	RE_Draw_PicScaled (viddef.width / 2 - (w * scale) / 2, viddef.height / 2 - (110 * scale), "m_banner_video", scale);
+	M_Banner ("m_banner_video");
 
 	// move cursor to a reasonable starting position
 	Menu_AdjustCursor (self, 1);
@@ -195,37 +358,6 @@ VID_MenuInit
 void VID_MenuInit (void)
 {
 	int y = 0;
-
-	static const char *resolutions[] = {
-		"[320 240   ]",
-		"[400 300   ]",
-		"[512 384   ]",
-		"[640 400   ]",
-		"[640 480   ]",
-		"[800 500   ]",
-		"[800 600   ]",
-		"[960 720   ]",
-		"[1024 480  ]",
-		"[1024 640  ]",
-		"[1024 768  ]",
-		"[1152 768  ]",
-		"[1152 864  ]",
-		"[1280 800  ]",
-		"[1280 720  ]",
-		"[1280 960  ]",
-		"[1280 1024 ]",
-		"[1366 768  ]",
-		"[1440 900  ]",
-		"[1600 1200 ]",
-		"[1680 1050 ]",
-		"[1920 1080 ]",
-		"[1920 1200 ]",
-		"[2048 1536 ]",
-		"[3440x1440 ]",
-		"[3840x2160 ]",
-		"[custom    ]",
-		0
-	};
 
 	static const char *yesno_names[] = {
 		"no",
@@ -249,50 +381,29 @@ void VID_MenuInit (void)
 		0
 	};
 
-	// make sure are cvars have some values
-	if (!gl_mode)
-		gl_mode = Cvar_Get("gl_mode", "10", 0);
-	if (!fov)
-		fov = Cvar_Get("fov", "90",  CVAR_USERINFO | CVAR_ARCHIVE);
-	if (!vid_gamma)
-		vid_gamma = Cvar_Get("vid_gamma", "1.0", CVAR_ARCHIVE);
-	if (!vid_contrast)
-		vid_contrast = Cvar_Get("vid_contrast", "1.0", CVAR_ARCHIVE);
-	if (!gl_swapinterval)
-		gl_swapinterval = Cvar_Get("gl_swapinterval", "1", CVAR_ARCHIVE);
-	if (!gl_textureanisotropy)
-		gl_textureanisotropy = Cvar_Get("gl_textureanisotropy", "0", CVAR_ARCHIVE);
-	if (!r_ssao)
-		r_ssao = Cvar_Get("r_ssao", "1", CVAR_ARCHIVE);
-	if (!r_postprocessing)
-		r_postprocessing = Cvar_Get("r_postprocessing", "1", CVAR_ARCHIVE);
-	if (!r_fxaa)
-		r_fxaa = Cvar_Get("r_fxaa", "0", CVAR_ARCHIVE);
+	VID_Menu_InitCvars ();
+	VID_Menu_GetResolutions ();
 
 	memset(&s_video_menu, 0, sizeof(s_video_menu));
-	s_video_menu.x = (int)(viddef.width * 0.50f);
+	s_video_menu.x = (int)(SCREEN_WIDTH * 0.50f);
 	s_video_menu.nitems = 0;
+
+	y = MENU_LINE_SIZE;
 
 	// video mode resolution
 	s_mode_list.generic.type = MTYPE_SPINCONTROL;
 	s_mode_list.generic.name = "video mode";
 	s_mode_list.generic.x = 0;
-	s_mode_list.generic.y = (y = 0);
+	s_mode_list.generic.y = y;
+	s_mode_list.generic.callback = VideoModeCallback;
 	s_mode_list.itemnames = resolutions;
-	if (gl_mode->value >= 0)
-	{
-		s_mode_list.curvalue = gl_mode->value;
-	}
-	else
-	{
-		s_mode_list.curvalue = GetCustomValue(&s_mode_list);
-	}
+	s_mode_list.curvalue = VID_Menu_FindDetectedResolution(Cvar_VariableValue("gl_mode"));
 
 	// fullscreen
 	s_fs_box.generic.type = MTYPE_SPINCONTROL;
 	s_fs_box.generic.name = "fullscreen";
 	s_fs_box.generic.x = 0;
-	s_fs_box.generic.y = (y += 10);
+	s_fs_box.generic.y = y += MENU_LINE_SIZE;
 	s_fs_box.itemnames = fullscreen_names;
 	s_fs_box.curvalue = (int)vid_fullscreen->value;
 
@@ -300,7 +411,7 @@ void VID_MenuInit (void)
 	s_brightness_slider.generic.type = MTYPE_SLIDER;
 	s_brightness_slider.generic.name = "brightness";
 	s_brightness_slider.generic.x = 0;
-	s_brightness_slider.generic.y = (y += 10);
+	s_brightness_slider.generic.y = y += MENU_LINE_SIZE;
 	s_brightness_slider.generic.callback = BrightnessCallback;
 	s_brightness_slider.minvalue = 0;
 	s_brightness_slider.maxvalue = 20;
@@ -310,7 +421,7 @@ void VID_MenuInit (void)
 	s_contrast_slider.generic.type = MTYPE_SLIDER;
 	s_contrast_slider.generic.name = "contrast";
 	s_contrast_slider.generic.x = 0;
-	s_contrast_slider.generic.y = (y += 10);
+	s_contrast_slider.generic.y = y += MENU_LINE_SIZE;
 	s_contrast_slider.generic.callback = ContrastCallback;
 	s_contrast_slider.minvalue = 1;
 	s_contrast_slider.maxvalue = 5;
@@ -319,7 +430,7 @@ void VID_MenuInit (void)
 	// field of view
 	s_fov_slider.generic.type = MTYPE_SLIDER;
 	s_fov_slider.generic.x = 0;
-	s_fov_slider.generic.y = (y += 20);
+	s_fov_slider.generic.y = y += 2 * MENU_LINE_SIZE;
 	s_fov_slider.generic.name = "field of view";
 	s_fov_slider.generic.callback = FOVCallback;
 	s_fov_slider.minvalue = 60;
@@ -330,7 +441,7 @@ void VID_MenuInit (void)
 	s_vsync_list.generic.type = MTYPE_SPINCONTROL;
 	s_vsync_list.generic.name = "vertical sync";
 	s_vsync_list.generic.x = 0;
-	s_vsync_list.generic.y = (y += 10);
+	s_vsync_list.generic.y = y += MENU_LINE_SIZE;
 	s_vsync_list.itemnames = yesno_names;
 	s_vsync_list.curvalue = (gl_swapinterval->value != 0);
 
@@ -338,7 +449,7 @@ void VID_MenuInit (void)
 	s_af_list.generic.type = MTYPE_SPINCONTROL;
 	s_af_list.generic.name = "aniso filtering";
 	s_af_list.generic.x = 0;
-	s_af_list.generic.y = (y += 10);
+	s_af_list.generic.y = y += MENU_LINE_SIZE;
 	s_af_list.generic.callback = AnisotropicCallback;
 	s_af_list.itemnames = pow2_names;
 	s_af_list.curvalue = 0;
@@ -355,7 +466,7 @@ void VID_MenuInit (void)
 	s_ssao_list.generic.type = MTYPE_SPINCONTROL;
 	s_ssao_list.generic.name = "SSAO";
 	s_ssao_list.generic.x = 0;
-	s_ssao_list.generic.y = (y += 10);
+	s_ssao_list.generic.y = y += MENU_LINE_SIZE;
 	s_ssao_list.itemnames = yesno_names;
 	s_ssao_list.curvalue = (r_ssao->value != 0);
 
@@ -363,7 +474,7 @@ void VID_MenuInit (void)
 	s_postprocessing_list.generic.type = MTYPE_SPINCONTROL;
 	s_postprocessing_list.generic.name = "HDR post-processing";
 	s_postprocessing_list.generic.x = 0;
-	s_postprocessing_list.generic.y = (y += 10);
+	s_postprocessing_list.generic.y = y += MENU_LINE_SIZE;
 	s_postprocessing_list.itemnames = yesno_names;
 	s_postprocessing_list.curvalue = (r_postprocessing->value != 0);
 
@@ -377,16 +488,16 @@ void VID_MenuInit (void)
 
 	// reset button
 	s_defaults_action.generic.type = MTYPE_ACTION;
-	s_defaults_action.generic.name = "reset to default";
+	s_defaults_action.generic.name = S_COLOR_BLUE "reset to default";
 	s_defaults_action.generic.x  = 0;
-	s_defaults_action.generic.y = (y += 20);
+	s_defaults_action.generic.y = y += 2 * MENU_LINE_SIZE;
 	s_defaults_action.generic.callback = ResetDefaults;
 
 	// apply button
 	s_apply_action.generic.type = MTYPE_ACTION;
-	s_apply_action.generic.name = "apply";
+	s_apply_action.generic.name = S_COLOR_BLUE "apply";
 	s_apply_action.generic.x = 0;
-	s_apply_action.generic.y = (y += 10);
+	s_apply_action.generic.y = y += MENU_LINE_SIZE;
 	s_apply_action.generic.callback = ApplyChanges;
 
 	s_video_menu.draw = VID_MenuDraw;

@@ -40,6 +40,8 @@ cvar_t	*allow_download_players;
 cvar_t	*allow_download_models;
 cvar_t	*allow_download_sounds;
 cvar_t	*allow_download_maps;
+cvar_t	*allow_download_pics;
+cvar_t	*allow_download_textures;
 
 cvar_t	*sv_airaccelerate;
 
@@ -1018,6 +1020,8 @@ void SV_Init (void)
 	allow_download_models = Cvar_Get ("allow_download_models", "1", CVAR_ARCHIVE);
 	allow_download_sounds = Cvar_Get ("allow_download_sounds", "1", CVAR_ARCHIVE);
 	allow_download_maps	 = Cvar_Get ("allow_download_maps", "1", CVAR_ARCHIVE);
+	allow_download_pics = Cvar_Get ("allow_download_pics", "1", CVAR_ARCHIVE);
+	allow_download_textures = Cvar_Get ("allow_download_textures", "1", CVAR_ARCHIVE);
 
 	sv_noreload = Cvar_Get ("sv_noreload", "0", 0);
 
@@ -1088,7 +1092,7 @@ void SV_Shutdown (char *finalmsg, qboolean reconnect)
 
 	// free current level
 	if (sv.demofile)
-		fclose (sv.demofile);
+		FS_FCloseFile (sv.demofile);
 
 	memset (&sv, 0, sizeof (sv));
 	Com_SetServerState (sv.state);

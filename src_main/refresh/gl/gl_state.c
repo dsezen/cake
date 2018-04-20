@@ -77,6 +77,28 @@ void GL_Clear(GLbitfield mask)
 }
 
 
+void GL_CheckError (char *str)
+{
+	GLenum err = glGetError();
+
+	switch (err)
+	{
+	case GL_INVALID_ENUM: VID_Printf(PRINT_ALL, S_COLOR_RED "GL_INVALID_ENUM"); break;
+	case GL_INVALID_VALUE: VID_Printf(PRINT_ALL, S_COLOR_RED "GL_INVALID_VALUE"); break;
+	case GL_INVALID_OPERATION: VID_Printf(PRINT_ALL, S_COLOR_RED "GL_INVALID_OPERATION"); break;
+	case GL_STACK_OVERFLOW: VID_Printf(PRINT_ALL, S_COLOR_RED "GL_STACK_OVERFLOW"); break;
+	case GL_STACK_UNDERFLOW: VID_Printf(PRINT_ALL, S_COLOR_RED "GL_STACK_UNDERFLOW"); break;
+	case GL_OUT_OF_MEMORY: VID_Printf(PRINT_ALL, S_COLOR_RED  "GL_OUT_OF_MEMORY"); break;
+	case GL_TABLE_TOO_LARGE: VID_Printf(PRINT_ALL, S_COLOR_RED "GL_TABLE_TOO_LARGE"); break;
+	default: return;
+	}
+
+	if (str)
+		VID_Printf(PRINT_ALL, S_COLOR_RED " with %s\n", str);
+	else VID_Printf(PRINT_ALL, S_COLOR_RED "\n");
+}
+
+
 void GL_GetShaderInfoLog(GLuint s, char *src, qboolean isprog)
 {
 	static char infolog[4096] = { 0 };
@@ -89,66 +111,93 @@ void GL_GetShaderInfoLog(GLuint s, char *src, qboolean isprog)
 	else glGetShaderInfoLog(s, 4095, &outlen, infolog);
 
 	if (outlen && infolog[0])
-	{
-		VID_Printf(PRINT_ALL, "%s", infolog);
-	}
+		VID_Printf(PRINT_ALL, S_COLOR_RED "%s", infolog);
 }
 
-
-qboolean GL_CompileShader(GLuint sh, char *src, GLenum shadertype, char *entrypoint)
+static void GL_GetShaderHeader (GLenum shadertype, GLchar *entrypoint, char *dest, int size)
 {
-	char *glslversion = "#version 330 core\n\n";
-	char *glslstrings[5];
-	char entrydefine[256] = { 0 };
-	char shaderdefine[256] = { 0 };
-	int result = 0;
+	float fbufWidthScale, fbufHeightScale;
 
-	if (!sh || !src) return false;
+	memset (dest, 0, sizeof(dest));
 
-	glGetError();
+	// shader version string
+	Q_strlcat (dest, "#version 330 core\n", size);
+
+	// extension strings
+	Q_strlcat (dest, "#extension GL_EXT_texture_array : enable\n", size);
+	Q_strlcat (dest, "#extension GL_ARB_texture_gather : require\n", size);
+	if (gl_config.gl_ext_GPUShader5_support)
+		Q_strlcat (dest, "#extension GL_ARB_gpu_shader5 : require\n", size);
 
 	// define entry point
-	if (entrypoint) sprintf(entrydefine, "#define %s main\n", entrypoint);
+	if (entrypoint)
+		Q_strlcat (dest, va("#define %s main\n", entrypoint), size);
 
 	// define shader type
 	switch (shadertype)
 	{
-	case GL_VERTEX_SHADER:
-		sprintf(shaderdefine, "#define VERTEXSHADER\n#define INOUTTYPE out\n");
-		break;
+		case GL_VERTEX_SHADER:
+			Q_strlcat (dest, "#define VERTEXSHADER\n#define INOUTTYPE out\n", size);
+			break;
 
-	case GL_FRAGMENT_SHADER:
-		sprintf(shaderdefine, "#define FRAGMENTSHADER\n#define INOUTTYPE in\n");
-		break;
-
-	default: return false;
+		case GL_FRAGMENT_SHADER:
+			Q_strlcat (dest, "#define FRAGMENTSHADER\n#define INOUTTYPE in\n", size);
+			break;
 	}
+
+	// framebuffer scale
+	fbufWidthScale = 1.0f / ((float)vid.width);
+	fbufHeightScale = 1.0f / ((float)vid.height);
+	Q_strlcat (dest, va("#ifndef r_FBufScale\n#define r_FBufScale vec2(%f, %f)\n#endif\n", fbufWidthScale, fbufHeightScale), size);
 
 	// load up common.glsl
 	char *commonbuf = NULL;
-	int commonlen = FS_LoadFile("glsl/common.glsl", (void **)&commonbuf);
 	char *commonsrc;
-	if (!commonlen)
-		commonsrc = NULL;
+	int commonsize = FS_LoadFile("glsl/common.glsl", (void **)&commonbuf);
 
-	// common.glsl doesn't have a trailing 0, so we need to copy it off
-	commonsrc = malloc(commonlen + 1);
-	memcpy(commonsrc, commonbuf, commonlen);
-	commonsrc[commonlen] = 0;
+	// the file doesn't have a trailing 0, so we need to copy it off
+	commonsrc = malloc (commonsize + 1);
+	memcpy (commonsrc, commonbuf, commonsize);
+	commonsrc[commonsize] = 0;
+
+	// prepend common.glsl to the header
+	strncat (dest, commonsrc, commonsize);
+	free (commonsrc);
+
+	// OK we added a lot of stuff but if we do something bad in the GLSL shaders then we want the proper line
+	// so we have to reset the line counting
+	Q_strlcat (dest, "#line 0\n", size);
+}
+
+qboolean GL_CompileShader(GLuint sh, char *src, GLenum shadertype, char *entrypoint)
+{
+	char shaderHeader[32000];
+	char *shaderFinal = NULL;
+	int sizeHeader, sizeFinal;
+	int result = 0;
+
+	if (!sh || !src) return false;
+
+	GL_CheckError (__func__);
+
+	// generate GLSL header
+	GL_GetShaderHeader (shadertype, entrypoint, shaderHeader, sizeof(shaderHeader));
+	sizeHeader = strlen (shaderHeader);
+	sizeFinal = sizeHeader + strlen (src);
 
 	// put everything together
-	glslstrings[0] = glslversion;
-	glslstrings[1] = entrydefine;
-	glslstrings[2] = shaderdefine;
-	glslstrings[3] = commonsrc;
-	glslstrings[4] = src;
+	shaderFinal = malloc (sizeFinal);
+	Q_strlcpy (shaderFinal, shaderHeader, sizeFinal);
+	Q_strlcat (shaderFinal, src, sizeFinal);
 
 	// compile into shader program
-	glShaderSource(sh, 5, glslstrings, NULL);
+	glShaderSource(sh, 1, &shaderFinal, &sizeFinal);
 	glCompileShader(sh);
 	glGetShaderiv(sh, GL_COMPILE_STATUS, &result);
 
 	GL_GetShaderInfoLog(sh, src, false);
+
+	free (shaderFinal);
 
 	if (result != GL_TRUE)
 		return false;
@@ -175,7 +224,7 @@ GLuint GL_CreateShaderFromName(char *name, char *vsentry, char *fsentry)
 	vs = glCreateShader(GL_VERTEX_SHADER);
 	fs = glCreateShader(GL_FRAGMENT_SHADER);
 
-	glGetError();
+	GL_CheckError (__func__);
 
 	// this crap really should have been built-in to GLSL...
 	if (!GL_CompileShader(vs, ressrc, GL_VERTEX_SHADER, vsentry))
@@ -232,7 +281,7 @@ GLuint GL_CreateComputeShaderFromName(char *name)
 
 	cs = glCreateShader(GL_COMPUTE_SHADER);
 
-	glGetError();
+	GL_CheckError (__func__);
 
 	// this crap really should have been built-in to GLSL...
 	glShaderSource(cs, 1, &(ressrc), 0);

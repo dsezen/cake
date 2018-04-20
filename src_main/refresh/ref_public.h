@@ -64,12 +64,16 @@ glmatrix *GL_PerspectiveMatrix (glmatrix *m, float fovy, float aspect, float zNe
 void GL_TransformPoint (glmatrix *m, float *in, float *out);
 
 
-#define	MAX_DLIGHTS			32
+#define MAX_LIGHTS			32
+
 #define	MAX_ENTITIES		1024	// same as max_edicts
+
 #define	MAX_PARTICLES		16000
+
 #define	MAX_LIGHTSTYLES		256
 
 #define POWERSUIT_SCALE		4.0f
+#define WEAPONSHELL_SCALE   0.5f
 
 #define SHELL_RED_COLOR		0xF2
 #define SHELL_GREEN_COLOR	0xD0
@@ -108,14 +112,14 @@ typedef struct entity_s
 	int		entnum;
 } entity_t;
 
-#define ENTITY_FLAGS 68
+#define ENTITY_FLAGS		68
 
 typedef struct
 {
 	vec3_t	origin;
 	vec3_t	transformed;
+	float	radius;
 	vec3_t	color;
-	float	intensity;
 } dlight_t;
 
 typedef struct
@@ -127,11 +131,14 @@ typedef struct
 		unsigned int color;
 		byte rgba[4];
 	};
-
-	// leftover values for the software refresh
-	int		soft_color;
-	float	alpha;
 } particle_t;
+
+typedef struct
+{
+	int			numPoints;
+	int			firstPoint;
+	struct mnode_s *node;
+} markFragment_t;
 
 typedef struct
 {
@@ -151,7 +158,7 @@ typedef struct
 
 	byte		*areabits;			// if not NULL, only areas with set bits will be drawn
 
-	lightstyle_t *lightstyles;	// [MAX_LIGHTSTYLES]
+	lightstyle_t *lightstyles;		// [MAX_LIGHTSTYLES]
 
 	int			num_entities;
 	entity_t	*entities;
@@ -184,8 +191,6 @@ extern void(*RE_BeginFrame)(float camera_separation);
 extern void(*RE_RenderFrame)(refdef_t *fd);
 extern void(*RE_EndFrame)(void);
 
-extern void(*RE_SetPalette)(const unsigned char *palette);
-
 extern int(*RE_Init)(void);
 extern void(*RE_Shutdown)(void);
 
@@ -193,12 +198,14 @@ extern void(*RE_Draw_StretchRaw)(int x, int y, int w, int h, int cols, int rows,
 extern void(*RE_Draw_FadeScreen)(void);
 extern void(*RE_Draw_Fill)(int x, int y, int w, int h, int c);
 extern void(*RE_Draw_TileClear)(int x, int y, int w, int h, char *pic);
-extern void(*RE_Draw_CharScaled)(int x, int y, int num, float scale);
-extern void(*RE_Draw_Char)(int x, int y, int num);
+extern void(*RE_Draw_SetColor)(float *rgba);
+extern void(*RE_Draw_Char)(int x, int y, int num, float scale);
 extern void(*RE_Draw_StretchPic)(int x, int y, int w, int h, char *pic);
-extern void(*RE_Draw_PicScaled)(int x, int y, char *pic, float scale);
-extern void(*RE_Draw_Pic)(int x, int y, char *pic);
+extern void(*RE_Draw_StretchPicExt)(float x, float y, float w, float h, float sl, float tl, float sh, float th, char *pic);
+extern void(*RE_Draw_Pic)(int x, int y, char *pic, float scale);
 extern void(*RE_Draw_GetPicSize)(int *w, int *h, char *pic);
+
+extern int(*RE_MarkFragments)(vec3_t origin, vec3_t axis[3], float radius, int maxPoints, vec3_t *points, int maxFragments, markFragment_t *fragments);
 
 extern void(*RE_BeginRegistration)(char *model);
 extern struct model_s * (*RE_RegisterModel)(char *name);
@@ -206,6 +213,7 @@ extern struct image_s * (*RE_RegisterSkin)(char *name);
 extern struct image_s * (*RE_Draw_RegisterPic)(char *name);
 extern void(*RE_SetSky)(char *name, float rotate, vec3_t axis);
 extern void(*RE_SetFog)(vec4_t fog);
+extern void(*RE_RegisterFont)(char *fontName, int pointSize, fontInfo_t *font);
 extern void(*RE_EndRegistration)(void);
 
 #define REF_API_UNDETERMINED	1

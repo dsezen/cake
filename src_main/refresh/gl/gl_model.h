@@ -93,6 +93,7 @@ typedef struct msurface_s
 
 	int			firstedge;	// look up in model->surfedges[], negative numbers
 	int			numvertexes;	// are backwards edges
+
 	int			numindexes;
 	void		*indexes;
 
@@ -110,13 +111,14 @@ typedef struct msurface_s
 	// lighting info
 	int			dlightframe;
 	int			dlightbits;
-	qboolean	cached_dlight;
 
 	RECT		lightrect;
 	int			lightmaptexturenum;
 	byte		styles[MAXLIGHTMAPS];
 	float		cached_light[MAXLIGHTMAPS];	// values currently used in lightmap
 	byte		*samples;		// [numstyles*surfsize]
+
+	int			checkCount; // for checking if surface has fragment
 } msurface_t;
 
 typedef struct mnode_s

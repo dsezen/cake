@@ -24,10 +24,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 #include <windows.h>
 #endif
 
-#define	MAXPRINTMSG	4096
-
-#define MAX_NUM_ARGVS	50
-
 void *Scratch_Alloc (void)
 {
 	// this buffer should never be accessed directly but always via a call to here
@@ -181,6 +177,7 @@ void Com_Printf (char *fmt, ...)
 		return;
 	}
 
+	// print to ingame console
 	Con_Print (msg);
 
 	// also echo to console
@@ -248,7 +245,7 @@ void Com_Error (int code, char *fmt, ...)
 	static	qboolean	recursive;
 
 	if (recursive)
-		Sys_Error ("recursive error after: %s", msg);
+		Sys_Error (S_COLOR_RED "recursive error after: %s" S_COLOR_WHITE, msg);
 
 	recursive = true;
 
@@ -264,15 +261,15 @@ void Com_Error (int code, char *fmt, ...)
 	}
 	else if (code == ERR_DROP)
 	{
-		Com_Printf ("********************\nERROR: %s\n********************\n", msg);
-		SV_Shutdown (va ("Server crashed: %s\n", msg), false);
+		Com_Printf (S_COLOR_RED "********************\n" S_COLOR_RED "ERROR: %s\n" S_COLOR_RED "********************\n", msg);
+		SV_Shutdown (va (S_COLOR_RED "Server crashed: %s\n" S_COLOR_WHITE, msg), false);
 		CL_Drop ();
 		recursive = false;
 		longjmp (abortframe, -1);
 	}
 	else
 	{
-		SV_Shutdown (va ("Server fatal crashed: %s\n", msg), false);
+		SV_Shutdown (va (S_COLOR_RED "Server fatal crashed: %s\n" S_COLOR_WHITE, msg), false);
 		CL_Shutdown ();
 	}
 
@@ -1021,7 +1018,7 @@ void *SZ_GetSpace (sizebuf_t *buf, int length)
 		if (length > buf->maxsize)
 			Com_Error (ERR_FATAL, "SZ_GetSpace: %i is > full buffer size", length);
 
-		Com_Printf ("SZ_GetSpace: overflow\n");
+		Com_Printf (S_COLOR_RED "SZ_GetSpace: overflow\n");
 		SZ_Clear (buf);
 		buf->overflowed = true;
 	}
@@ -1180,7 +1177,7 @@ void Info_Print (char *s)
 
 		if (!*s)
 		{
-			Com_Printf ("MISSING VALUE\n");
+			Com_Printf (S_COLOR_RED "MISSING VALUE\n");
 			return;
 		}
 
@@ -1199,6 +1196,35 @@ void Info_Print (char *s)
 	}
 }
 
+/*
+================
+Com_RealTime
+================
+*/
+int Com_RealTime (qtime_t * qtime)
+{
+	time_t t;
+	struct tm *tms;
+
+	t = time (NULL);
+	if (!qtime)
+		return t;
+
+	tms = localtime (&t);
+	if (tms)
+	{
+		qtime->tm_sec = tms->tm_sec;
+		qtime->tm_min = tms->tm_min;
+		qtime->tm_hour = tms->tm_hour;
+		qtime->tm_mday = tms->tm_mday;
+		qtime->tm_mon = tms->tm_mon;
+		qtime->tm_year = tms->tm_year;
+		qtime->tm_wday = tms->tm_wday;
+		qtime->tm_yday = tms->tm_yday;
+		qtime->tm_isdst = tms->tm_isdst;
+	}
+	return t;
+}
 
 /*
 ==============================================================================
@@ -1436,9 +1462,35 @@ float	crand (void)
 	return (rand () & 32767) * (2.0 / 32767) - 1;
 }
 
+/*
+=================
+Qcommon_ExecConfigs
+=================
+*/
+void Qcommon_ExecConfigs (qboolean gameStartUp)
+{
+	// only when the game is first started we execute defaults.cfg
+	if (gameStartUp)
+		Cbuf_AddText ("exec defaults.cfg\n");
+
+	// add in the game/mod config
+	Cbuf_AddText ("exec config.cfg\n");
+
+	if (gameStartUp)
+	{
+		// only when the game is first started we execute autoexec.cfg and set the cvars from commandline
+		Cbuf_AddText ("exec autoexec.cfg\n");
+		Cbuf_AddEarlyCommands (true);
+	}
+
+	Cbuf_Execute ();
+}
+
+// game given by user
+char userGivenGame[MAX_QPATH];
+
 void Key_Init (void);
 void SCR_EndLoadingPlaque (void);
-
 
 /*
 =================
@@ -1473,14 +1525,18 @@ void Qcommon_Init (int argc, char **argv)
 	Cbuf_AddEarlyCommands (false);
 	Cbuf_Execute ();
 
+	// remember the initial game name that might have been set on commandline
+	{
+		cvar_t * gameCvar = Cvar_Get("game", "", CVAR_LATCH | CVAR_SERVERINFO);
+		char* game = "";
+		if (gameCvar->string && gameCvar->string[0])
+			game = gameCvar->string;
+		Q_strlcpy (userGivenGame, game, sizeof(userGivenGame));
+	}
+
 	FS_InitFilesystem ();
 
-	Cbuf_AddText ("exec default.cfg\n");
-	Cbuf_AddText ("exec config.cfg\n");
-	Cbuf_AddText ("exec autoexec.cfg\n");
-
-	Cbuf_AddEarlyCommands (true);
-	Cbuf_Execute ();
+	Qcommon_ExecConfigs (true);
 
 	// init commands and vars
 	Cmd_AddCommand ("z_stats", Z_Stats_f);
@@ -1525,7 +1581,8 @@ void Qcommon_Init (int argc, char **argv)
 		// if the user didn't give any commands, run default action
 		if (!dedicated->value)
 			Cbuf_AddText ("d1\n");
-		else Cbuf_AddText ("dedicated_start\n");
+		else
+			Cbuf_AddText ("dedicated_start\n");
 
 		Cbuf_Execute ();
 	}
@@ -1601,6 +1658,19 @@ void Qcommon_Frame (int msec)
 			}
 		}
 	}
+
+	// if recording an avi, lock to a fixed fps
+#ifndef DEDICATED_ONLY
+	extern cvar_t *cl_aviFrameRate;
+	extern qboolean CL_VideoRecording(void);
+	if (CL_VideoRecording() && cl_aviFrameRate->integer)
+	{
+		// fixed time for next frame
+		msec = (int)ceil((1000.0f / cl_aviFrameRate->value) * timescale->value);
+		if (msec == 0)
+			msec = 1;
+	}
+#endif
 
 	// timing debug
 	if (fixedtime->value)
@@ -1890,6 +1960,8 @@ Qcommon_Shutdown
 void Qcommon_Shutdown (void)
 {
 	Cvar_Shutdown ();
+
+	FS_Shutdown ();
 }
 
 /*

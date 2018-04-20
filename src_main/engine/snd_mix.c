@@ -20,7 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 // snd_mix.c -- portable code to mix sounds for snd_dma.c
 
 #include "client.h"
-#include "snd_loc.h"
+#include "snd_local.h"
 
 #define	PAINTBUFFER_SIZE	2048
 portable_samplepair_t paintbuffer[PAINTBUFFER_SIZE];
@@ -82,6 +82,10 @@ static void S_TransferStereo16 (unsigned long *pbuf, int endtime)
 
 		snd_p += snd_linear_count;
 		lpaintedtime += (snd_linear_count >> 1);
+
+		// write out to video if recording
+		if (CL_VideoRecording())
+			CL_WriteAVIAudioFrame((byte *)snd_out, snd_linear_count << 1);
 	}
 }
 
@@ -102,19 +106,6 @@ static void S_TransferPaintBuffer (int endtime)
 
 	pbuf = (unsigned long *) dma.buffer;
 
-	if (s_testsound->value)
-	{
-		int		i;
-		int		count;
-
-		// write a fixed sine wave
-		count = (endtime - paintedtime);
-
-		for (i = 0; i < count; i++)
-			paintbuffer[i].left = paintbuffer[i].right = sin ((paintedtime + i) * 0.1) * 20000 * 256;
-	}
-
-
 	if (dma.samplebits == 16 && dma.channels == 2)
 	{
 		// optimized case
@@ -129,7 +120,24 @@ static void S_TransferPaintBuffer (int endtime)
 		out_idx = paintedtime * dma.channels & out_mask;
 		step = 3 - dma.channels;
 
-		if (dma.samplebits == 16)
+		if ((dma.isfloat) && (dma.samplebits == 32))
+		{
+			float *out = (float *)pbuf;
+			while (count--)
+			{
+				val = *p >> 8;
+				p += step;
+
+				if (val > 0x7fff)
+					val = 0x7fff;
+				else if (val < -32767) // clamp to one less than max to make division max out at -1.0f.
+					val = -32767;
+
+				out[out_idx] = ((float)val) / 32767.0f;
+				out_idx = (out_idx + 1) & out_mask;
+			}
+		}
+		else if (dma.samplebits == 16)
 		{
 			short *out = (short *) pbuf;
 
@@ -249,7 +257,7 @@ void S_PaintChannels (int endtime)
 	int		ltime, count;
 	playsound_t	*ps;
 
-	snd_vol = s_volume->value * 256;
+	snd_vol = Q_Clamp(0, 1, s_volume->value) * 256;
 
 	while (paintedtime < endtime)
 	{
@@ -383,7 +391,7 @@ void S_InitScaletable (void)
 
 	for (i = 0; i < 32; i++)
 	{
-		scale = i * 8 * 256 * s_volume->value;
+		scale = i * 8 * 256 * Q_Clamp(0, 1, s_volume->value);
 
 		for (j = 0; j < 256; j++)
 			snd_scaletable[i][j] = ((signed char) j) * scale;

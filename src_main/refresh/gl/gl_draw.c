@@ -32,6 +32,7 @@ GLuint gl_drawprog = 0;
 GLuint u_drawBrightnessAmount = 0;
 GLuint u_drawContrastAmount = 0;
 GLuint u_drawtexturecolormix = 0;
+GLuint u_drawcolorAdd = 0;
 
 #define MAX_DRAW_QUADS	2048
 
@@ -53,6 +54,7 @@ typedef struct drawstate_s
 	qboolean drawing;
 	GLuint currenttexture;
 	GLuint currentsampler;
+	float colorAdd[4];
 	float texturecolormix;
 	float brightness;
 	float contrast;
@@ -60,7 +62,7 @@ typedef struct drawstate_s
 	int numquads;
 } drawstate_t;
 
-drawstate_t gl_drawstate = {false, 0xffffffff, 0, 0, 0, 0};
+drawstate_t gl_drawstate = {false, 0xffffffff, 0, 0, 0, 0, 0, 0};
 drawvert_t gl_drawquads[MAX_DRAW_QUADS * 4];
 
 GLuint gl_drawvbo = 0;
@@ -97,6 +99,7 @@ void RDraw_CreatePrograms (void)
 	gl_drawstate.numquads = 0;
 	gl_drawstate.currenttexture = 0xffffffff;
 	gl_drawstate.currentsampler = 0xffffffff;
+	Vector4Set (gl_drawstate.colorAdd, 1.0, 1.0, 1.0, 1.0);
 
 	glDeleteTextures (1, &r_rawtexture);
 	glGenTextures (1, &r_rawtexture);
@@ -112,6 +115,7 @@ void RDraw_CreatePrograms (void)
 	u_drawtexturecolormix = glGetUniformLocation (gl_drawprog, "texturecolormix");
 	u_drawBrightnessAmount = glGetUniformLocation (gl_drawprog, "brightnessAmount");
 	u_drawContrastAmount = glGetUniformLocation (gl_drawprog, "contrastAmount");
+	u_drawcolorAdd = glGetUniformLocation (gl_drawprog, "colorAdd");
 
 	glGenVertexArrays (1, &gl_drawvao);
 
@@ -214,7 +218,7 @@ void Draw_GenericRect (GLuint texture, GLuint sampler, float texturecolormix, fl
 
 	if (brightness != gl_drawstate.brightness)
 	{
-		Draw_Flush();
+		Draw_Flush ();
 
 		glProgramUniform1f(gl_drawprog, u_drawBrightnessAmount, brightness);
 
@@ -223,7 +227,7 @@ void Draw_GenericRect (GLuint texture, GLuint sampler, float texturecolormix, fl
 
 	if (contrast != gl_drawstate.contrast)
 	{
-		Draw_Flush();
+		Draw_Flush ();
 
 		glProgramUniform1f(gl_drawprog, u_drawContrastAmount, contrast);
 
@@ -247,6 +251,19 @@ void Draw_GenericRect (GLuint texture, GLuint sampler, float texturecolormix, fl
 		glNamedBufferDataEXT (gl_drawvbo, MAX_DRAW_QUADS * 4 * sizeof (drawvert_t), NULL, GL_STREAM_DRAW);
 
 		gl_drawstate.firstquad = 0;
+	}
+
+	if (!Vector4Compare(gl_drawstate.colorAdd, colorWhite))
+	{
+		glProgramUniform4f(gl_drawprog, u_drawcolorAdd, gl_drawstate.colorAdd[0], gl_drawstate.colorAdd[1], gl_drawstate.colorAdd[2], gl_drawstate.colorAdd[3]);
+		
+		Draw_Flush ();
+	}
+	else
+	{
+		glProgramUniform4f(gl_drawprog, u_drawcolorAdd, 1.0, 1.0, 1.0, 1.0);
+
+		Draw_Flush();
 	}
 
 	dv = &gl_drawquads[(gl_drawstate.firstquad + gl_drawstate.numquads) * 4];
@@ -292,13 +309,36 @@ Draw_InitLocal
 void Draw_InitLocal (void)
 {
 	// load console characters (don't bilerp characters)
-	draw_chars = GL_FindImage ("pics/conchars.pcx", it_pic);
+	draw_chars = GL_FindImage ("pics/charset.png", it_pic);
 	if (!draw_chars)
 	{
-		Com_Error(ERR_FATAL, "Couldn't load pics/conchars.pcx");
+		draw_chars = GL_FindImage("pics/conchars.pcx", it_pic);
+		if (!draw_chars)
+			Com_Error(ERR_FATAL, "Couldn't load pics/conchars.pcx");
 	}
 }
 
+/*
+=============
+RE_Draw_SetColor
+
+Passing NULL will set the color to white
+=============
+*/
+void RE_GL_Draw_SetColor (float *rgba)
+{
+	if (!rgba)
+	{
+		// just send white
+		Vector4Set(gl_drawstate.colorAdd, 1.0, 1.0, 1.0, 1.0);
+		return;
+	}
+
+	gl_drawstate.colorAdd[0] = rgba[0];
+	gl_drawstate.colorAdd[1] = rgba[1];
+	gl_drawstate.colorAdd[2] = rgba[2];
+	gl_drawstate.colorAdd[3] = rgba[3];
+}
 
 /*
 ================
@@ -309,15 +349,14 @@ It can be clipped to the top of the screen to allow the console to be
 smoothly scrolled off.
 ================
 */
-void RE_GL_Draw_CharScaled (int x, int y, int num, float scale)
+void RE_GL_Draw_Char (int x, int y, int num, float scale)
 {
 	float frow, fcol, size, scaledSize;
 
 	num &= 255;
 
 	if ((num & 127) == 32)
-		return;		// space
-
+		return;			// space
 	if (y <= -8)
 		return;			// totally off screen
 
@@ -327,12 +366,7 @@ void RE_GL_Draw_CharScaled (int x, int y, int num, float scale)
 
 	scaledSize = 8 * scale;
 
-	Draw_TexturedRect(draw_chars->texnum, r_drawnearestclampsampler, x, y, scaledSize, scaledSize, fcol, frow, fcol + size, frow + size);
-}
-
-void RE_GL_Draw_Char (int x, int y, int num)
-{
-	RE_GL_Draw_CharScaled(x, y, num, 1.0f);
+	Draw_TexturedRect (draw_chars->texnum, r_drawnearestclampsampler, x, y, scaledSize, scaledSize, fcol, frow, fcol + size, frow + size);
 }
 
 /*
@@ -349,6 +383,11 @@ image_t	*RE_GL_Draw_RegisterPic(char *name)
 	{
 		Com_sprintf (fullname, sizeof (fullname), "pics/%s.pcx", name);
 		gl = GL_FindImage (fullname, it_pic);
+		if (!gl)
+		{
+			Com_sprintf(fullname, sizeof(fullname), "%s", name);
+			gl = GL_FindImage(fullname, it_pic);
+		}
 	}
 	else gl = GL_FindImage (name + 1, it_pic);
 
@@ -365,7 +404,6 @@ void RE_GL_Draw_GetPicSize (int *w, int *h, char *pic)
 	image_t *gl;
 
 	gl = RE_GL_Draw_RegisterPic (pic);
-
 	if (!gl)
 	{
 		*w = *h = -1;
@@ -386,31 +424,47 @@ void RE_GL_Draw_StretchPic (int x, int y, int w, int h, char *pic)
 	image_t *gl;
 
 	gl = RE_GL_Draw_RegisterPic (pic);
-
 	if (!gl)
 	{
-		VID_Printf (PRINT_ALL, "Can't find pic: %s\n", pic);
+		VID_Printf (PRINT_ALL, S_COLOR_RED "Can't find pic: %s\n", pic);
 		return;
 	}
 
 	Draw_TexturedRect (gl->texnum, r_drawclampsampler, x, y, w, h, gl->sl, gl->tl, gl->sh, gl->th);
 }
 
+/*
+=============
+RE_Draw_StretchPicExt
+=============
+*/
+void RE_GL_Draw_StretchPicExt (float x, float y, float w, float h, float sl, float tl, float sh, float th, char *pic)
+{
+	image_t *gl;
+
+	gl = RE_GL_Draw_RegisterPic(pic);
+	if (!gl)
+	{
+		VID_Printf(PRINT_ALL, S_COLOR_RED "Can't find pic: %s\n", pic);
+		return;
+	}
+
+	Draw_TexturedRect (gl->texnum, r_drawclampsampler, x, y, w, h, sl, tl, sh, th);
+}
 
 /*
 =============
 RE_Draw_Pic
 =============
 */
-void RE_GL_Draw_PicScaled (int x, int y, char *pic, float scale)
+void RE_GL_Draw_Pic (int x, int y, char *pic, float scale)
 {
 	image_t *gl;
 
 	gl = RE_GL_Draw_RegisterPic (pic);
-
 	if (!gl)
 	{
-		VID_Printf(PRINT_ALL, "Can't find pic: %s\n", pic);
+		VID_Printf(PRINT_ALL, S_COLOR_RED "Can't find pic: %s\n", pic);
 		return;
 	}
 
@@ -420,10 +474,6 @@ void RE_GL_Draw_PicScaled (int x, int y, char *pic, float scale)
 	Draw_TexturedRect(gl->texnum, r_drawclampsampler, x, y, w, h, gl->sl, gl->tl, gl->sh, gl->th);
 }
 
-void RE_GL_Draw_Pic (int x, int y, char *pic)
-{
-	RE_GL_Draw_PicScaled(x, y, pic, 1.0f);
-}
 
 /*
 =============
@@ -438,10 +488,9 @@ void RE_GL_Draw_TileClear (int x, int y, int w, int h, char *pic)
 	image_t	*image;
 
 	image = RE_GL_Draw_RegisterPic (pic);
-
 	if (!image)
 	{
-		VID_Printf (PRINT_ALL, "Can't find pic: %s\n", pic);
+		VID_Printf (PRINT_ALL, S_COLOR_RED "Can't find pic: %s\n", pic);
 		return;
 	}
 

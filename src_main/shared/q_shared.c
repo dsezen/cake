@@ -19,7 +19,31 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 #include "q_shared.h"
 
-vec3_t vec3_origin = {0, 0, 0};
+vec3_t vec3_origin = { 0, 0, 0 };
+
+vec4_t colorBlack = { 0, 0, 0, 1 };
+vec4_t colorRed = { 1, 0, 0, 1 };
+vec4_t colorGreen = { 0, 1, 0, 1 };
+vec4_t colorBlue = { 0, 0, 1, 1 };
+vec4_t colorYellow = { 1, 1, 0, 1 };
+vec4_t colorMagenta = { 1, 0, 1, 1 };
+vec4_t colorCyan = { 0, 1, 1, 1 };
+vec4_t colorWhite = { 1, 1, 1, 1 };
+vec4_t colorLtGrey = { 0.75, 0.75, 0.75, 1 };
+vec4_t colorMdGrey = { 0.5, 0.5, 0.5, 1 };
+vec4_t colorDkGrey = { 0.25, 0.25, 0.25, 1 };
+
+vec4_t g_color_table[8] =
+{
+	{ 0.0, 0.0, 0.0, 1.0 },
+	{ 1.0, 0.0, 0.0, 1.0 },
+	{ 0.0, 1.0, 0.0, 1.0 },
+	{ 1.0, 1.0, 0.0, 1.0 },
+	{ 0.0, 0.0, 1.0, 1.0 },
+	{ 0.0, 1.0, 1.0, 1.0 },
+	{ 1.0, 0.0, 1.0, 1.0 },
+	{ 1.0, 1.0, 1.0, 1.0 },
+};
 
 //============================================================================
 
@@ -700,8 +724,7 @@ void AddPointToBounds (vec3_t v, vec3_t mins, vec3_t maxs)
 	}
 }
 
-
-int VectorCompare (vec3_t v1, vec3_t v2)
+int VectorCompare(vec3_t v1, vec3_t v2)
 {
 	if (v1[0] != v2[0] || v1[1] != v2[1] || v1[2] != v2[2])
 		return 0;
@@ -709,6 +732,13 @@ int VectorCompare (vec3_t v1, vec3_t v2)
 	return 1;
 }
 
+int Vector4Compare (vec4_t v1, vec4_t v2)
+{
+	if (v1[0] != v2[0] || v1[1] != v2[1] || v1[2] != v2[2] || v1[3] != v2[3])
+		return 0;
+
+	return 1;
+}
 
 vec_t VectorNormalize (vec3_t v)
 {
@@ -986,6 +1016,30 @@ void COM_DefaultExtension (char *path, char *extension)
 	}
 
 	strcat (path, extension);
+}
+
+void COM_StripHighBits (char *string, int highbits)
+{
+	byte		high;
+	byte		c;
+	char		*p;
+
+	p = string;
+
+	if (highbits)
+		high = 127;
+	else
+		high = 255;
+
+	while (*string)
+	{
+		c = *(string++);
+
+		if (c >= 32 && c <= high)
+			*p++ = c;
+	}
+
+	*p = '\0';
 }
 
 /*
@@ -1418,7 +1472,7 @@ void Com_sprintf (char *dest, int size, char *fmt, ...)
 	va_end (argptr);
 
 	if (len >= size)
-		Com_Printf ("Com_sprintf: overflow of %i in %i\n", len, size);
+		Com_Printf (S_COLOR_RED "Com_sprintf: overflow of %i in %i\n", len, size);
 
 	strncpy (dest, bigbuffer, size - 1);
 }
@@ -1427,17 +1481,17 @@ void Com_strcpy(char *dest, int destSize, const char *src)
 {
 	if (!dest)
 	{
-		Com_Printf("Com_strcpy: NULL dst\n");
+		Com_Printf(S_COLOR_RED "Com_strcpy: NULL dst\n");
 		return;
 	}
 	if (!src)
 	{
-		Com_Printf("Com_strcpy: NULL src\n");
+		Com_Printf(S_COLOR_RED "Com_strcpy: NULL src\n");
 		return;
 	}
 	if (destSize < 1)
 	{
-		Com_Printf("Com_strcpy: dstSize < 1\n");
+		Com_Printf(S_COLOR_RED "Com_strcpy: dstSize < 1\n");
 		return;
 	}
 
@@ -1449,17 +1503,17 @@ void Com_strcat(char *dest, int destSize, const char *src)
 {
 	if (!dest)
 	{
-		Com_Printf("Com_strcat: NULL dst\n");
+		Com_Printf(S_COLOR_RED "Com_strcat: NULL dst\n");
 		return;
 	}
 	if (!src)
 	{
-		Com_Printf("Com_strcat: NULL src\n");
+		Com_Printf(S_COLOR_RED "Com_strcat: NULL src\n");
 		return;
 	}
 	if (destSize < 1)
 	{
-		Com_Printf("Com_strcat: dstSize < 1\n");
+		Com_Printf(S_COLOR_RED "Com_strcat: dstSize < 1\n");
 		return;
 	}
 
@@ -1475,6 +1529,39 @@ void Com_strcat(char *dest, int destSize, const char *src)
 	}
 }
 
+/*
+===============
+Q_concat
+
+Returns number of characters that would be written into the buffer,
+excluding trailing '\0'. If the returned value is equal to or greater than
+buffer size, resulting string is truncated.
+===============
+*/
+size_t Q_concat(char *dest, size_t size, ...)
+{
+	va_list argptr;
+	const char *s;
+	size_t len, total = 0;
+
+	va_start(argptr, size);
+	while ((s = va_arg(argptr, const char *)) != NULL)
+	{
+		len = strlen(s);
+		if (total + len < size)
+		{
+			memcpy(dest, s, len);
+			dest += len;
+		}
+		total += len;
+	}
+	va_end(argptr);
+
+	if (size)
+		*dest = 0;
+
+	return total;
+}
 
 char *Q_strlwr(char *s)
 {
@@ -1521,6 +1608,73 @@ int Q_strlcat(char *dst, const char *src, int size)
 	}
 
 	return (d - dst) + Q_strlcpy(d, src, size);
+}
+
+int Q_PrintStrlen (const char *string)
+{
+	int	len;
+	const char *p;
+
+	if (!string)
+		return 0;
+
+	len = 0;
+	p = string;
+	while (*p)
+	{
+		if (Q_IsColorString(p))
+		{
+			p += 2;
+			continue;
+		}
+		p++;
+		len++;
+	}
+
+	return len;
+}
+
+char *Q_CleanStr (char *string)
+{
+	char *d;
+	char *s;
+	int	c;
+
+	s = string;
+	d = string;
+	while ((c = *s) != 0)
+	{
+		if (Q_IsColorString(s))
+			s++;
+		else if (c >= 0x20 && c <= 0x7E)
+			*d++ = c;
+		s++;
+	}
+	*d = '\0';
+
+	return string;
+}
+
+/*
+===============
+Q_memccpy
+
+Copies no more than 'size' bytes stopping when 'c' character is found.
+Returns pointer to next byte after 'c' in 'dst', or NULL if 'c' was not found.
+===============
+*/
+void *Q_memccpy(void *dst, const void *src, int c, size_t size)
+{
+	byte *d = dst;
+	const byte *s = src;
+
+	while (size--) {
+		if ((*d++ = *s++) == c) {
+			return d;
+		}
+	}
+
+	return NULL;
 }
 
 /*
@@ -1674,25 +1828,25 @@ void Info_SetValueForKey (char *s, char *key, char *value)
 
 	if (strstr (key, "\\") || strstr (value, "\\"))
 	{
-		Com_Printf ("Can't use keys or values with a \\\n");
+		Com_Printf (S_COLOR_RED "Can't use keys or values with a \\\n");
 		return;
 	}
 
 	if (strstr (key, ";"))
 	{
-		Com_Printf ("Can't use keys or values with a semicolon\n");
+		Com_Printf (S_COLOR_RED "Can't use keys or values with a semicolon\n");
 		return;
 	}
 
 	if (strstr (key, "\"") || strstr (value, "\""))
 	{
-		Com_Printf ("Can't use keys or values with a \"\n");
+		Com_Printf (S_COLOR_RED "Can't use keys or values with a \"\n");
 		return;
 	}
 
 	if (strlen (key) > MAX_INFO_KEY - 1 || strlen (value) > MAX_INFO_KEY - 1)
 	{
-		Com_Printf ("Keys and values must be < 64 characters.\n");
+		Com_Printf (S_COLOR_RED "Keys and values must be < 64 characters.\n");
 		return;
 	}
 
@@ -1705,7 +1859,7 @@ void Info_SetValueForKey (char *s, char *key, char *value)
 
 	if (strlen (newi) + strlen (s) > maxsize)
 	{
-		Com_Printf ("Info string length exceeded\n");
+		Com_Printf (S_COLOR_RED "Info string length exceeded\n");
 		return;
 	}
 

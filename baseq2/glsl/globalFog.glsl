@@ -23,7 +23,6 @@ uniform sampler2D depth;
 
 uniform mat4 unprojectmatrix;
 
-uniform vec2 texScale;
 uniform vec3 viewOrigin;
 uniform vec4 fogColorDensity;
 
@@ -31,7 +30,7 @@ out vec4 fragColor;
 
 void GlobalFogFS ()
 {
-	vec2 st = gl_FragCoord.st * texScale;
+	vec2 st = gl_FragCoord.st * r_FBufScale;
 	
 	// reconstruct vertex position in world space
 	float zdepth = texture(depth, st).r;
@@ -45,18 +44,17 @@ void GlobalFogFS ()
 	float fogExponent = fogDistance * fogColorDensity.a;
 
 	// calculate fog factor
-	float fogFactor = exp2(-abs(fogExponent));
+	float fogFactor = exp2(-fogExponent * fogExponent);
 
-	// grab scene
-	vec3 currentScene = texture(diffuse, st).rgb;
-	
-	// compute final color, lerp between fog color and current color by fog factor
-	vec4 color;
-	color.r = (1.0 - fogFactor) * fogColorDensity.r + currentScene.r * fogFactor;
-	color.g = (1.0 - fogFactor) * fogColorDensity.g + currentScene.g * fogFactor;
-	color.b = (1.0 - fogFactor) * fogColorDensity.b + currentScene.b * fogFactor;
-	color.a = 1.0;
-	fragColor = color;
+	// don't fog the skybox, since it mangles with depth, fog doesn't work
+	if (zdepth >= 0.999999)
+		fogFactor = 1.0;
+
+	// grab scene and skybox
+	vec4 sceneColor = texture(diffuse, st);
+
+	// lerp between scene color and fog color by fog factor
+	fragColor = mix(vec4(fogColorDensity.rgb, 1.0), sceneColor, fogFactor);
 }
 #endif
 

@@ -20,6 +20,22 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
 #include "gl_local.h"
 
+#define STBI_NO_LINEAR
+#define STBI_NO_HDR
+#define STBI_NO_BMP
+#define STBI_NO_PSD
+#define STBI_NO_GIF
+#define STBI_NO_PIC
+#define STBI_NO_PNM
+
+// make sure STB_image uses standard malloc(), as we'll use standard free() to deallocate
+#define STBI_MALLOC(sz)    malloc(sz)
+#define STBI_REALLOC(p,sz) realloc(p,sz)
+#define STBI_FREE(p)       free(p)
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 unsigned	d_8to24table_rgba[256];
 unsigned	d_8to24table_bgra[256];
 
@@ -40,10 +56,14 @@ void Img_Free (void)
 	img_base = 0;
 }
 
-
 void GL_ResampleTexture (unsigned *in, int inwidth, int inheight, unsigned *out, int outwidth, int outheight);
 
-void GL_Image8To32 (byte *data8, unsigned *data32, int size, unsigned *palette)
+/*
+=============
+GL_Image8To32
+=============
+*/
+static void GL_Image8To32 (byte *data8, unsigned *data32, int size, unsigned *palette)
 {
 	int i;
 
@@ -66,6 +86,23 @@ void GL_Image8To32 (byte *data8, unsigned *data32, int size, unsigned *palette)
 	}
 }
 
+/*
+=============
+GL_SwapBlueRed
+=============
+*/
+static void GL_SwapBlueRed (byte *data, int width, int height, int samples)
+{
+	int i, j, size;
+
+	size = width * height;
+	for (i = 0; i < size; i++, data += samples)
+	{
+		j = data[0];
+		data[0] = data[2];
+		data[2] = j;
+	}
+}
 
 typedef struct glmode_s
 {
@@ -201,7 +238,7 @@ void GL_TextureMode (char *string, int anisotropy)
 
 	if (i == NUM_GL_MODES)
 	{
-		VID_Printf (PRINT_ALL, "bad filter name\n");
+		VID_Printf (PRINT_ALL, S_COLOR_RED "bad filter name\n");
 		return;
 	}
 
@@ -287,28 +324,6 @@ void GL_ImageList_f (void)
 	VID_Printf (PRINT_ALL, "Total texel count (not counting mipmaps): %i\n", texels);
 }
 
-void GL_CheckError (char *str)
-{
-	GLenum err = glGetError ();
-
-	switch (err)
-	{
-	case GL_INVALID_ENUM: VID_Printf (PRINT_ALL, "GL_INVALID_ENUM"); break;
-	case GL_INVALID_VALUE: VID_Printf (PRINT_ALL, "GL_INVALID_VALUE"); break;
-	case GL_INVALID_OPERATION: VID_Printf (PRINT_ALL, "GL_INVALID_OPERATION"); break;
-	case GL_STACK_OVERFLOW: VID_Printf (PRINT_ALL, "GL_STACK_OVERFLOW"); break;
-	case GL_STACK_UNDERFLOW: VID_Printf (PRINT_ALL, "GL_STACK_UNDERFLOW"); break;
-	case GL_OUT_OF_MEMORY: VID_Printf (PRINT_ALL, "GL_OUT_OF_MEMORY"); break;
-	case GL_TABLE_TOO_LARGE: VID_Printf (PRINT_ALL, "GL_TABLE_TOO_LARGE"); break;
-	default: return;
-	}
-
-	if (str)
-		VID_Printf (PRINT_ALL, " with %s\n", str);
-	else VID_Printf (PRINT_ALL, "\n");
-}
-
-
 GLuint GL_LoadCubeMap (cubeface_t *faces)
 {
 	int i;
@@ -333,7 +348,7 @@ GLuint GL_LoadCubeMap (cubeface_t *faces)
 	if (!size) size = 1;
 
 	// if this causes trouble on AMD we can revert it back to glTexImage (would really prefer not to though...)
-	glGetError ();
+	GL_CheckError( __func__ );
 	glTextureStorage2DEXT (texnum, GL_TEXTURE_CUBE_MAP, 1, GL_RGBA8, size, size);
 
 	if (glGetError () != GL_NO_ERROR)
@@ -377,7 +392,6 @@ PCX LOADING
 =================================================================
 */
 
-
 /*
 ==============
 LoadPCX
@@ -388,7 +402,9 @@ static void LoadPCX (char *filename, byte **pic, byte **palette, int *width, int
 	byte	*raw;
 	pcx_t	*pcx;
 	int		x, y;
-	int		len;
+	int		len, full_size;
+	int		pcx_width, pcx_height;
+	qboolean image_issues = false;
 	int		dataByte, runLength;
 	byte	*out, *pix;
 
@@ -397,10 +413,9 @@ static void LoadPCX (char *filename, byte **pic, byte **palette, int *width, int
 
 	// load the file
 	len = FS_LoadFile (filename, (void **) &raw);
-
-	if (!raw)
+	if (!raw || len < sizeof(pcx_t))
 	{
-		VID_Printf (PRINT_DEVELOPER, "Bad pcx file %s\n", filename);
+		VID_Printf (PRINT_DEVELOPER, S_COLOR_RED "Bad pcx file %s\n", filename);
 		return;
 	}
 
@@ -419,276 +434,229 @@ static void LoadPCX (char *filename, byte **pic, byte **palette, int *width, int
 
 	raw = &pcx->data;
 
+	pcx_width = pcx->xmax - pcx->xmin;
+	pcx_height = pcx->ymax - pcx->ymin;
+
 	if (pcx->manufacturer != 0x0a ||
 		pcx->version != 5 ||
 		pcx->encoding != 1 ||
 		pcx->bits_per_pixel != 8 ||
-		pcx->xmax >= 640 ||
-		pcx->ymax >= 480)
+		(pcx_width >= 4096) || (pcx_height >= 4096))
 	{
-		VID_Printf (PRINT_ALL, "Bad pcx file %s\n", filename);
+		VID_Printf (PRINT_ALL, S_COLOR_RED "Bad pcx file %s\n", filename);
 		return;
 	}
 
-	out = Img_Alloc ((pcx->ymax + 1) * (pcx->xmax + 1));
+	full_size = (pcx_height + 1) * (pcx_width + 1);
+	out = Img_Alloc (full_size);
+
 	*pic = out;
 	pix = out;
 
 	if (palette)
 	{
 		*palette = Img_Alloc (768);
-		memcpy (*palette, (byte *) pcx + len - 768, 768);
+		if (len > 768)
+			memcpy (*palette, (byte *) pcx + len - 768, 768);
+		else
+			image_issues = true;
 	}
 
-	if (width) *width = pcx->xmax + 1;
-	if (height) *height = pcx->ymax + 1;
+	if (width) *width = pcx_width + 1;
+	if (height) *height = pcx_height + 1;
 
-	for (y = 0; y <= pcx->ymax; y++, pix += pcx->xmax + 1)
+	for (y = 0; y <= pcx_height; y++, pix += pcx_width + 1)
 	{
-		for (x = 0; x <= pcx->xmax ;)
+		for (x = 0; x <= pcx_width;)
 		{
+			if (raw - (byte *)pcx > len)
+			{
+				// no place for read
+				image_issues = true;
+				x = pcx_width;
+				break;
+			}
 			dataByte = *raw++;
 
 			if ((dataByte & 0xC0) == 0xC0)
 			{
 				runLength = dataByte & 0x3F;
+				if (raw - (byte *)pcx > len)
+				{
+					// no place for read
+					image_issues = true;
+					x = pcx_width;
+					break;
+				}
 				dataByte = *raw++;
 			}
 			else runLength = 1;
 
 			while (runLength-- > 0)
-				pix[x++] = dataByte;
+			{
+				if ((*pic + full_size) <= (pix + x))
+				{
+					// no place for write
+					image_issues = true;
+					x += runLength;
+					runLength = 0;
+				}
+				else
+				{
+					pix[x++] = dataByte;
+				}
+			}
 		}
 	}
 
 	if (raw - (byte *) pcx > len)
 	{
-		VID_Printf (PRINT_DEVELOPER, "PCX file %s was malformed", filename);
+		VID_Printf (PRINT_DEVELOPER, S_COLOR_RED "PCX file %s was malformed.\n", filename);
 		*pic = NULL;
 	}
+
+	if (image_issues)
+		VID_Printf (PRINT_ALL, S_COLOR_YELLOW "PCX file %s has possible size issues.\n", filename);
 
 	FS_FreeFile (pcx);
 }
 
 /*
-=========================================================
-
-TARGA LOADING
-
-=========================================================
+==============
+GetPCXInfo
+==============
 */
-
-typedef struct _TargaHeader
+static void GetPCXInfo (char *filename, int *width, int *height)
 {
-	unsigned char 	id_length, colormap_type, image_type;
-	unsigned short	colormap_index, colormap_length;
-	unsigned char	colormap_size;
-	unsigned short	x_origin, y_origin, width, height;
-	unsigned char	pixel_size, attributes;
-} TargaHeader;
+	pcx_t *pcx;
+	byte *raw;
 
-
-/*
-=============
-LoadTGA
-=============
-*/
-
-void LoadTGACommon (int length, byte *buffer, byte **pic, int *width, int *height)
-{
-	int		columns, rows, numPixels;
-	byte	*pixbuf;
-	int		row, column;
-	byte	*buf_p;
-	TargaHeader		targa_header;
-	byte			*targa_rgba;
-	byte tmp[2];
-
-	if (!buffer)
-	{
-		VID_Printf (PRINT_DEVELOPER, "Bad tga file\n");
+	FS_LoadFile (filename, (void **)&raw);
+	if (!raw)
 		return;
-	}
 
-	*pic = NULL;
+	pcx = (pcx_t *)raw;
 
-	buf_p = buffer;
+	*width = pcx->xmax + 1;
+	*height = pcx->ymax + 1;
 
-	targa_header.id_length = *buf_p++;
-	targa_header.colormap_type = *buf_p++;
-	targa_header.image_type = *buf_p++;
+	FS_FreeFile (raw);
 
-	tmp[0] = buf_p[0];
-	tmp[1] = buf_p[1];
-	targa_header.colormap_index = LittleShort (*((short *) tmp));
-	buf_p += 2;
-	tmp[0] = buf_p[0];
-	tmp[1] = buf_p[1];
-	targa_header.colormap_length = LittleShort (*((short *) tmp));
-	buf_p += 2;
-	targa_header.colormap_size = *buf_p++;
-	targa_header.x_origin = LittleShort (*((short *) buf_p));
-	buf_p += 2;
-	targa_header.y_origin = LittleShort (*((short *) buf_p));
-	buf_p += 2;
-	targa_header.width = LittleShort (*((short *) buf_p));
-	buf_p += 2;
-	targa_header.height = LittleShort (*((short *) buf_p));
-	buf_p += 2;
-	targa_header.pixel_size = *buf_p++;
-	targa_header.attributes = *buf_p++;
-
-	if (targa_header.image_type != 2 && targa_header.image_type != 10)
-		VID_Error (ERR_DROP, "LoadTGA: Only type 2 and 10 targa RGB images supported\n");
-
-	if (targa_header.colormap_type != 0 || (targa_header.pixel_size != 32 && targa_header.pixel_size != 24))
-		VID_Error (ERR_DROP, "LoadTGA: Only 32 or 24 bit images supported (no colormaps)\n");
-
-	columns = targa_header.width;
-	rows = targa_header.height;
-	numPixels = columns * rows;
-
-	if (width) *width = columns;
-	if (height) *height = rows;
-
-	targa_rgba = Img_Alloc (numPixels * 4);
-	*pic = targa_rgba;
-
-	if (targa_header.id_length != 0)
-		buf_p += targa_header.id_length; // skip TARGA image comment
-
-	if (targa_header.image_type == 2) // Uncompressed, RGB images
-	{
-		for (row = rows - 1; row >= 0; row--)
-		{
-			pixbuf = targa_rgba + row * columns * 4;
-
-			for (column = 0; column < columns; column++)
-			{
-				switch (targa_header.pixel_size)
-				{
-				case 24:
-					*pixbuf++ = *buf_p++;
-					*pixbuf++ = *buf_p++;
-					*pixbuf++ = *buf_p++;
-					*pixbuf++ = 255;
-					break;
-
-				case 32:
-					*pixbuf++ = *buf_p++;
-					*pixbuf++ = *buf_p++;
-					*pixbuf++ = *buf_p++;
-					*pixbuf++ = *buf_p++;
-					break;
-				}
-			}
-		}
-	}
-	else if (targa_header.image_type == 10)  // Runlength encoded RGB images
-	{
-		unsigned char red, green, blue, alphabyte, packetHeader, packetSize, j;
-
-		for (row = rows - 1; row >= 0; row--)
-		{
-			pixbuf = targa_rgba + row * columns * 4;
-
-			for (column = 0; column < columns;)
-			{
-				packetHeader = *buf_p++;
-				packetSize = 1 + (packetHeader & 0x7f);
-
-				if (packetHeader & 0x80)     // run-length packet
-				{
-					switch (targa_header.pixel_size)
-					{
-					case 24:
-						blue = *buf_p++;
-						green = *buf_p++;
-						red = *buf_p++;
-						alphabyte = 255;
-						break;
-					case 32:
-						blue = *buf_p++;
-						green = *buf_p++;
-						red = *buf_p++;
-						alphabyte = *buf_p++;
-						break;
-					}
-
-					for (j = 0; j < packetSize; j++)
-					{
-						*pixbuf++ = blue;
-						*pixbuf++ = green;
-						*pixbuf++ = red;
-						*pixbuf++ = alphabyte;
-						column++;
-
-						if (column == columns) // run spans across rows
-						{
-							column = 0;
-
-							if (row > 0)
-								row--;
-							else
-								goto breakOut;
-
-							pixbuf = targa_rgba + row * columns * 4;
-						}
-					}
-				}
-				else               // non run-length packet
-				{
-					for (j = 0; j < packetSize; j++)
-					{
-						switch (targa_header.pixel_size)
-						{
-						case 24:
-							*pixbuf++ = *buf_p++;
-							*pixbuf++ = *buf_p++;
-							*pixbuf++ = *buf_p++;
-							*pixbuf++ = 255;
-							break;
-
-						case 32:
-							*pixbuf++ = *buf_p++;
-							*pixbuf++ = *buf_p++;
-							*pixbuf++ = *buf_p++;
-							*pixbuf++ = *buf_p++;
-							break;
-						}
-
-						column++;
-
-						if (column == columns) // pixel packet run spans across rows
-						{
-							column = 0;
-
-							if (row > 0)
-								row--;
-							else goto breakOut;
-
-							pixbuf = targa_rgba + row * columns * 4;
-						}
-					}
-				}
-			}
-
-breakOut:;
-		}
-	}
+	return;
 }
 
 
-void LoadTGAFile (char *name, byte **pic, int *width, int *height)
+/*
+=========================================================
+
+WAL LOADING
+
+=========================================================
+*/
+
+/*
+================
+GL_LoadWal
+================
+*/
+static image_t *GL_LoadWal(char *name)
 {
-	int length;
-	byte *buffer;
+	miptex_t	*mt;
+	int			width, height, ofs;
+	image_t		*image;
 
-	length = FS_LoadFile (name, (void **) &buffer);
+	FS_LoadFile(name, (void **)&mt);
+	if (!mt)
+	{
+		VID_Printf(PRINT_ALL, S_COLOR_RED "GL_FindImage: can't load %s\n", name);
+		return r_notexture;
+	}
 
-	LoadTGACommon (length, buffer, pic, width, height);
+	width = LittleLong(mt->width);
+	height = LittleLong(mt->height);
+	ofs = LittleLong(mt->offsets[0]);
 
-	FS_FreeFile (buffer);
+	image = GL_LoadPic(name, (byte *)mt + ofs, width, height, it_wall, 8);
+
+	FS_FreeFile((void *)mt);
+
+	return image;
+}
+
+/*
+================
+GetWalInfo
+================
+*/
+static void GetWalInfo(char *name, int *width, int *height)
+{
+	miptex_t *mt;
+
+	FS_LoadFile(name, (void **)&mt);
+	if (!mt)
+		return;
+
+	*width = LittleLong(mt->width);
+	*height = LittleLong(mt->height);
+
+	FS_FreeFile((void *)mt);
+
+	return;
+}
+
+
+/*
+=========================================================
+
+GENERIC RGBA PICTURE LOADING
+
+=========================================================
+*/
+
+/*
+=============
+LoadImageThruSTB
+=============
+*/
+qboolean LoadImageThruSTB (char *origname, char* type, byte **pic, int *width, int *height)
+{
+	char filename[256];
+
+	Q_strlcpy (filename, origname, sizeof(filename));
+
+	// add the extension
+	if (strcmp(COM_FileExtension(filename), type) != 0)
+	{
+		Q_strlcat (filename, ".", sizeof(filename));
+		Q_strlcat (filename, type, sizeof(filename));
+	}
+
+	*pic = NULL;
+	*width = *height = 0;
+
+	byte* rawdata = NULL;
+	int rawsize = FS_LoadFile (filename, (void **)&rawdata);
+	if (rawdata == NULL)
+		return false;
+
+	// load file into memory
+	int w, h, bytesPerPixel;
+	byte* data = NULL;
+	data = stbi_load_from_memory (rawdata, rawsize, &w, &h, &bytesPerPixel, STBI_rgb_alpha);
+	if (data == NULL)
+	{
+		VID_Printf (PRINT_ALL, S_COLOR_RED "stb_image couldn't load data from %s: %s!\n", filename, stbi_failure_reason());
+		FS_FreeFile (rawdata);
+		return false;
+	}
+	
+	FS_FreeFile (rawdata);
+
+	*pic = data;
+	*width = w;
+	*height = h;
+
+	return true;
 }
 
 
@@ -898,10 +866,8 @@ static float Q_log2 (float i)
 /*
 ===============
 GL_UploadTexture
-
 ===============
 */
-
 GLuint GL_UploadTexture (byte *data, int width, int height, qboolean mipmap, int bits)
 {
 	int i;
@@ -915,7 +881,10 @@ GLuint GL_UploadTexture (byte *data, int width, int height, qboolean mipmap, int
 		GL_Image8To32 (data, trans, width * height, d_8to24table_bgra);
 	}
 	else
+	{
 		trans = (unsigned *) data;
+		GL_SwapBlueRed (data, width, height, 4);
+	}
 
 	// it's assumed that our hardware can handle Q2 texture sizes
 	upload_width = width;
@@ -1009,36 +978,6 @@ image_t *GL_LoadPic (char *name, byte *pic, int width, int height, imagetype_t t
 
 
 /*
-================
-GL_LoadWal
-================
-*/
-image_t *GL_LoadWal (char *name)
-{
-	miptex_t	*mt;
-	int			width, height, ofs;
-	image_t		*image;
-
-	FS_LoadFile (name, (void **) &mt);
-
-	if (!mt)
-	{
-		VID_Printf (PRINT_ALL, "GL_FindImage: can't load %s\n", name);
-		return r_notexture;
-	}
-
-	width = LittleLong (mt->width);
-	height = LittleLong (mt->height);
-	ofs = LittleLong (mt->offsets[0]);
-
-	image = GL_LoadPic (name, (byte *) mt + ofs, width, height, it_wall, 8);
-
-	FS_FreeFile ((void *) mt);
-
-	return image;
-}
-
-/*
 ===============
 GL_FindImage
 
@@ -1051,14 +990,30 @@ image_t	*GL_FindImage (char *name, imagetype_t type)
 	int		i, len;
 	byte	*pic, *palette;
 	int		width, height;
+	char	*ext, *ptr;
+	char	namewe[256];
+	int		realwidth = 0, realheight = 0;
 
 	if (!name)
-		return NULL;	//	VID_Error (ERR_DROP, "GL_FindImage: NULL name");
+		return NULL;
 
+	ext = COM_FileExtension(name);
+	if (!ext[0])
+	{
+		// file has no extension
+		return NULL;
+	}
+
+	// remove the extension
 	len = strlen (name);
-
 	if (len < 5)
-		return NULL;	//	VID_Error (ERR_DROP, "GL_FindImage: bad name: %s", name);
+		return NULL;
+	memset(namewe, 0, 256);
+	memcpy(namewe, name, len - 4);
+
+	// fix backslashes
+	while ((ptr = strchr(name, '\\')))
+		*ptr = '/';
 
 	// look for it
 	for (i = 0, image = gltextures; i < numgltextures; i++, image++)
@@ -1077,29 +1032,72 @@ image_t	*GL_FindImage (char *name, imagetype_t type)
 	pic = NULL;
 	palette = NULL;
 
-	if (!strcmp (name + len - 4, ".pcx"))
+	if (strcmp(ext, "pcx") == 0)
 	{
-		LoadPCX (name, &pic, &palette, &width, &height);
+		GetPCXInfo (name, &realwidth, &realheight);
+		if (realwidth == 0)
+		{
+			// no texture found
+			return NULL;
+		}
 
-		if (!pic)
-			return NULL; // VID_Error (ERR_DROP, "GL_FindImage: can't load %s", name);
+		// check for retexture
+		if (LoadImageThruSTB(namewe, "tga", &pic, &width, &height)
+			|| LoadImageThruSTB(namewe, "png", &pic, &width, &height)
+			|| LoadImageThruSTB(namewe, "jpg", &pic, &width, &height))
+		{
+			// upload tga or png or jpg
+			image = GL_LoadPic (name, pic, realwidth, realheight, type, 32);
+		}
+		else
+		{
+			// upload PCX
+			LoadPCX (name, &pic, &palette, &width, &height);
+			if (!pic)
+				return NULL;
 
-		image = GL_LoadPic (name, pic, width, height, type, 8);
+			image = GL_LoadPic (name, pic, width, height, type, 8);
+		}
 	}
-	else if (!strcmp (name + len - 4, ".wal"))
+	else if (strcmp(ext, "wal") == 0)
 	{
-		image = GL_LoadWal (name);
-	}
-	else if (!strcmp (name + len - 4, ".tga"))
-	{
-		LoadTGAFile (name, &pic, &width, &height);
+		GetWalInfo (name, &realwidth, &realheight);
+		if (realwidth == 0)
+		{
+			// no texture found
+			return NULL;
+		}
 
+		// check for retexture
+		if (LoadImageThruSTB(namewe, "tga", &pic, &width, &height)
+			|| LoadImageThruSTB(namewe, "png", &pic, &width, &height)
+			|| LoadImageThruSTB(namewe, "jpg", &pic, &width, &height))
+		{
+			// upload tga or png or jpg
+			image = GL_LoadPic (name, pic, realwidth, realheight, type, 32);
+		}
+		else
+		{
+			// upload wal
+			image = GL_LoadWal (name);
+		}
+
+		if (!image)
+			return NULL;
+	}
+	else if (strcmp(ext, "tga") == 0 || strcmp(ext, "png") == 0 || strcmp(ext, "jpg") == 0)
+	{
+		// load tga, png, or jpg
+		LoadImageThruSTB (name, ext, &pic, &width, &height);
 		if (!pic)
-			return NULL; // VID_Error (ERR_DROP, "GL_FindImage: can't load %s", name);
+			return NULL;
 
 		image = GL_LoadPic (name, pic, width, height, type, 32);
 	}
-	else return NULL;	//	VID_Error (ERR_DROP, "GL_FindImage: bad extension on: %s", name);
+	else
+	{
+		return NULL;
+	}
 
 	Img_Free ();
 

@@ -19,7 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
 
 #include "client.h"
-#include "snd_loc.h"
+#include "snd_local.h"
 
 #include <SDL.h>
 
@@ -148,14 +148,10 @@ qboolean SNDDMA_Init(void)
 #endif
 
 	Com_Printf("Starting SDL audio callback.\n");
-
-	if (!SDL_WasInit(SDL_INIT_AUDIO))
+	if (SDL_Init(SDL_INIT_AUDIO) != 0)
 	{
-		if (SDL_Init(SDL_INIT_AUDIO) == -1)
-		{
-			Com_Printf("Couldn't init SDL audio: %s.\n", SDL_GetError());
-			return 0;
-		}
+		Com_Printf(S_COLOR_RED "Couldn't init SDL audio: %s.\n", SDL_GetError());
+		return 0;
 	}
 
 	const char* drivername = SDL_GetCurrentAudioDriver();
@@ -217,7 +213,7 @@ qboolean SNDDMA_Init(void)
 	// Okay, let's try our luck
 	if (SDL_OpenAudio(&desired, &obtained) == -1)
 	{
-		Com_Printf("SDL_OpenAudio() failed: %s\n", SDL_GetError());
+		Com_Printf(S_COLOR_RED "SDL_OpenAudio() failed: %s\n", SDL_GetError());
 		SDL_QuitSubSystem(SDL_INIT_AUDIO);
 		return 0;
 	}
@@ -226,7 +222,8 @@ qboolean SNDDMA_Init(void)
 	dmabackend = &dma;
 
 	dmapos = 0;
-	dmabackend->samplebits = obtained.format & 0xFF;
+	dmabackend->samplebits = SDL_AUDIO_BITSIZE(obtained.format);
+	dmabackend->isfloat = SDL_AUDIO_ISFLOAT(obtained.format);
 	dmabackend->channels = obtained.channels;
 
 	tmp = (obtained.samples * obtained.channels) * 10;
@@ -305,7 +302,7 @@ Reset the sound device for exiting
 void SNDDMA_Shutdown (void)
 {
 	Com_Printf("Closing SDL audio device...\n");
-	SDL_PauseAudio(1);
+
 	SDL_CloseAudio();
 	
 	SDL_QuitSubSystem(SDL_INIT_AUDIO);

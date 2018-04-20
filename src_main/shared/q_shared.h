@@ -39,7 +39,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 #endif
 
 typedef unsigned char 		byte;
-#if defined(__cplusplus)
+#if defined(__cplusplus) || defined(__bool_true_false_are_defined)
 typedef int					qboolean;
 #else
 typedef enum {false, true}	qboolean;
@@ -59,11 +59,15 @@ char *strtok_r(char *s, const char *delim, char **last);
 
 #define ARRAY_LEN(x)		(sizeof(x) / sizeof(*(x)))
 
+#define PAD(x,y)			(((x)+(y)-1) & ~((y)-1))
+#define PADLEN(x, y)		(PAD((x), (y)) - (x))
+
 #define CL_MASTER_ADDR		"maraakate.org" /* FS: master.gamespy.com & co are dead */
 #define CL_MASTER_PORT		"28900"
 #define SV_MASTER_IP		"maraakate.org" /* FS: master.gamespy.com & co are dead */
 #define SV_MASTER_PORT		"27900"
 
+#define AVI_LINE_PADDING	4
 
 // angle indexes
 #define	PITCH				0		// up / down
@@ -137,6 +141,43 @@ typedef	int	fixed4_t;
 typedef	int	fixed8_t;
 typedef	int	fixed16_t;
 
+extern	vec4_t colorBlack;
+extern	vec4_t colorRed;
+extern	vec4_t colorGreen;
+extern	vec4_t colorBlue;
+extern	vec4_t colorYellow;
+extern	vec4_t colorMagenta;
+extern	vec4_t colorCyan;
+extern	vec4_t colorWhite;
+extern	vec4_t colorLtGrey;
+extern	vec4_t colorMdGrey;
+extern	vec4_t colorDkGrey;
+
+#define Q_COLOR_ESCAPE	'^'
+#define Q_IsColorString(p)	(p && *(p) == Q_COLOR_ESCAPE && *((p)+1) && *((p)+1) != Q_COLOR_ESCAPE)
+
+#define COLOR_BLACK		'0'
+#define COLOR_RED		'1'
+#define COLOR_GREEN		'2'
+#define COLOR_YELLOW	'3'
+#define COLOR_BLUE		'4'
+#define COLOR_CYAN		'5'
+#define COLOR_MAGENTA	'6'
+#define COLOR_WHITE		'7'
+#define ColorIndexForNumber(c) ((c) & 0x07)
+#define ColorIndex(c)	(ColorIndexForNumber((c)-'0'))
+
+#define S_COLOR_BLACK	"^0"
+#define S_COLOR_RED		"^1"
+#define S_COLOR_GREEN	"^2"
+#define S_COLOR_YELLOW	"^3"
+#define S_COLOR_BLUE	"^4"
+#define S_COLOR_CYAN	"^5"
+#define S_COLOR_MAGENTA	"^6"
+#define S_COLOR_WHITE	"^7"
+
+extern vec4_t g_color_table[8];
+
 #ifndef bound
 #define bound(a,b,c) ((a) >= (c) ? (a) : (b) < (a) ? (a) : (b) > (c) ? (c) : (b))
 #endif
@@ -165,14 +206,37 @@ extern long Q_ftol (float f);
 void Q_sincos (float angradians, float *angsin, float *angcos);
 
 #define DotProduct(x,y)			(x[0]*y[0]+x[1]*y[1]+x[2]*y[2])
+#define VectorAvg(a,b,c)        ((c)[0]=((a)[0]+(b)[0])*0.5f, (c)[1]=((a)[1]+(b)[1])*0.5f, (c)[2]=((a)[2]+(b)[2])*0.5f)
 #define VectorSubtract(a,b,dst)	(dst[0]=a[0]-b[0],dst[1]=a[1]-b[1],dst[2]=a[2]-b[2])
 #define VectorAdd(a,b,dst)		(dst[0]=a[0]+b[0],dst[1]=a[1]+b[1],dst[2]=a[2]+b[2])
 #define VectorCopy(src,dst)		(dst[0]=src[0],dst[1]=src[1],dst[2]=src[2])
 #define VectorClear(a)			(a[0]=a[1]=a[2]=0)
 #define VectorNegate(src,dst)	(dst[0]=-src[0],dst[1]=-src[1],dst[2]=-src[2])
 
+static void VectorReflect(const vec3_t v, const vec3_t normal, vec3_t out)
+{
+	float           d;
+
+	d = 2.0 * (v[0] * normal[0] + v[1] * normal[1] + v[2] * normal[2]);
+
+	out[0] = v[0] - normal[0] * d;
+	out[1] = v[1] - normal[1] * d;
+	out[2] = v[2] - normal[2] * d;
+}
+
 #define Vector2Set(v, x, y)		(v[0]=(x), v[1]=(y))
+
 #define Vector3Set(v, x, y, z)	(v[0]=(x), v[1]=(y), v[2]=(z))
+
+#define DotProduct4(x,y)		((x)[0]*(y)[0]+(x)[1]*(y)[1]+(x)[2]*(y)[2]+(x)[3]*(y)[3])
+#define Vector4Subtract(a,b,c)	((c)[0]=(a)[0]-(b)[0],(c)[1]=(a)[1]-(b)[1],(c)[2]=(a)[2]-(b)[2],(c)[3]=(a)[3]-(b)[3])
+#define Vector4Add(a,b,c)		((c)[0]=(a)[0]+(b)[0],(c)[1]=(a)[1]+(b)[1],(c)[2]=(a)[2]+(b)[2],(c)[3]=(a)[3]+(b)[3])
+#define Vector4Copy(a,b)		((b)[0]=(a)[0],(b)[1]=(a)[1],(b)[2]=(a)[2],(b)[3]=(a)[3])
+#define Vector4Scale(v, s, o)	((o)[0]=(v)[0]*(s),(o)[1]=(v)[1]*(s),(o)[2]=(v)[2]*(s),(o)[3]=(v)[3]*(s))
+#define Vector4MA(v, s, b, o)	((o)[0]=(v)[0]+(b)[0]*(s),(o)[1]=(v)[1]+(b)[1]*(s),(o)[2]=(v)[2]+(b)[2]*(s),(o)[3]=(v)[3]+(b)[3]*(s))
+#define Vector4Clear(a)			((a)[0]=(a)[1]=(a)[2]=(a)[3]=0)
+#define Vector4Negate(a,b)		((b)[0]=-(a)[0],(b)[1]=-(a)[1],(b)[2]=-(a)[2],(b)[3]=-(a)[3])
+#define Vector4Set(v,x,y,z,w)	((v)[0]=(x),(v)[1]=(y),(v)[2]=(z),(v)[3]=(w))
 
 void VectorMA (vec3_t addvec, float scale, vec3_t mulvec, vec3_t out);
 
@@ -185,6 +249,7 @@ void _VectorCopy (vec3_t in, vec3_t out);
 void ClearBounds (vec3_t mins, vec3_t maxs);
 void AddPointToBounds (vec3_t v, vec3_t mins, vec3_t maxs);
 int VectorCompare (vec3_t v1, vec3_t v2);
+int Vector4Compare (vec4_t v1, vec4_t v2);
 vec_t VectorLength (vec3_t v);
 void CrossProduct (vec3_t v1, vec3_t v2, vec3_t cross);
 vec_t VectorNormalize (vec3_t v);		// returns vector length
@@ -233,8 +298,10 @@ void COM_StripExtensionSafe (const char *in, char *out, int destsize);
 char *COM_StripPathFromFilename (const char *in);
 char *COM_FileExtension (char *in);
 void COM_FileBase (char *in, char *out);
-void COM_FilePath (const char *path, char *dst, int dstSize);
+void COM_FilePath (const char* in, char* out, size_t size);
 void COM_DefaultExtension (char *path, char *extension);
+
+void COM_StripHighBits (char *string, int highbits);
 
 char *COM_Parse (char **data_p);
 // data is an in/out parm, returns a parsed out token
@@ -261,6 +328,16 @@ int Q_strncasecmp (char *s1, char *s2, int n);
 char *Q_strlwr (char *s);
 int Q_strlcpy (char *dst, const char *src, int size);
 int Q_strlcat (char *dst, const char *src, int size);
+size_t Q_concat (char *dest, size_t size, ...);
+
+// strlen that discounts Quake color sequences
+int Q_PrintStrlen (const char *string);
+
+// removes color sequences from string
+char *Q_CleanStr (char *string);
+
+// copies no more than 'size' bytes stopping when 'c' character is found
+void *Q_memccpy (void *dst, const void *src, int c, size_t size);
 
 int glob_match (char *pattern, char *text);
 
@@ -1029,5 +1106,57 @@ typedef struct
 
 	short		stats[MAX_STATS];		// fast status bar updates
 } player_state_t;
+
+// all drawing is done to a 640*480 virtual screen size
+// and will be automatically scaled to the real resolution
+#define SCREEN_WIDTH		640
+#define SCREEN_HEIGHT		480
+
+// font support
+#define SMALLCHAR_WIDTH		8
+#define SMALLCHAR_HEIGHT	16
+
+#define BIGCHAR_WIDTH		16
+#define BIGCHAR_HEIGHT		16
+
+#define GIANTCHAR_WIDTH		32
+#define GIANTCHAR_HEIGHT	48
+
+#define UI_LEFT			0x00000000	// default
+#define UI_CENTER		0x00000001
+#define UI_RIGHT		0x00000002
+
+#define UI_SMALLFONT	0x00000010
+#define UI_BIGFONT		0x00000020	// default
+#define UI_GIANTFONT	0x00000040
+#define UI_DROPSHADOW	0x00000800
+
+#define GLYPH_START 0
+#define GLYPH_END 255
+#define GLYPH_CHARSTART 32
+#define GLYPH_CHAREND 127
+#define GLYPHS_PER_FONT GLYPH_END - GLYPH_START + 1
+typedef struct
+{
+	int             height;		// number of scan lines
+	int             top;		// top of glyph in buffer
+	int             bottom;		// bottom of glyph in buffer
+	int             pitch;		// width for copying
+	int             xSkip;		// x adjustment
+	int             imageWidth;	// width of actual image
+	int             imageHeight; // height of actual image
+	float           s;			// x offset in image where glyph starts
+	float           t;			// y offset in image where glyph starts
+	float           s2;
+	float           t2;
+	char            imageName[MAX_OSPATH];
+} glyphInfo_t;
+
+typedef struct
+{
+	glyphInfo_t     glyphs[GLYPHS_PER_FONT];
+	float           glyphScale;
+	char            name[MAX_QPATH];
+} fontInfo_t;
 
 #endif

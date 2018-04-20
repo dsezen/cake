@@ -127,6 +127,10 @@ Console command to re-start the video mode and refresh.
 */
 void VID_Restart_f (void)
 {
+	// Settings may have changed so stop recording now
+	if (CL_VideoRecording())
+		CL_CloseAVI ();
+
 	vid_ref->modified = true;
 }
 
@@ -265,7 +269,6 @@ void VID_CheckChanges (void)
 	{
 		cl.force_refdef = true;		// can't use a paused refdef
 		S_StopAllSounds ();
-		BGM_Stop ();
 	}
 
 	while (vid_ref->modified)
@@ -294,8 +297,14 @@ void VID_CheckChanges (void)
 	}
 }
 
-// called with image data of width*height pixel which comp bytes per pixel (must be 3 or 4 for RGB or RGBA)
-// expects the pixels data to be row-wise, starting at top left
+/*
+============
+VID_WriteScreenshot
+
+Called with image data of width * height pixel which comp bytes per pixel (must be 3 or 4 for RGB or RGBA)
+Expects the pixels data to be row-wise, starting at top left
+============
+*/
 void VID_WriteScreenshot(int width, int height, int comp, const void* data)
 {
 	char picname[80];
@@ -308,10 +317,6 @@ void VID_WriteScreenshot(int width, int height, int comp, const void* data)
 	int argc = Cmd_Argc();
 	char* gameDir = FS_Gamedir();
 	
-	// create the scrnshots directory if it doesn't exist
-	Com_sprintf(checkname, sizeof(checkname), "%s/scrnshot", gameDir);
-	Sys_Mkdir(checkname);
-
 	// check if we have any args
 	if (argc > 1)
 	{
@@ -376,7 +381,7 @@ void VID_WriteScreenshot(int width, int height, int comp, const void* data)
 	
 	if (i == 10000)
 	{
-		Com_Printf("VID_WriteScreenshot: Couldn't create a file\n");
+		Com_Printf(S_COLOR_RED "VID_WriteScreenshot: Couldn't create a file\n");
 		return;
 	}
 	
@@ -400,8 +405,16 @@ void VID_WriteScreenshot(int width, int height, int comp, const void* data)
 	}
 	else
 	{
-		Com_Printf("VID_WriteScreenshot: Couldn't write %s\n", picname);
+		Com_Printf(S_COLOR_RED "VID_WriteScreenshot: Couldn't write %s\n", picname);
 	}
+}
+
+/*
+VID_TakeVideoFrame
+*/
+void VID_TakeVideoFrame(int width, int height, byte *captureBuffer, byte *encodeBuffer)
+{
+	VID_GL_TakeVideoFrame (width, height, captureBuffer, encodeBuffer);
 }
 
 

@@ -100,8 +100,7 @@ void RPostProcess_Begin (void);
 void RPostProcess_FinishToScreen (void);
 void RPostProcess_MenuBackground (void);
 
-void LoadTGAFile (char *name, byte **pic, int *width, int *height);
-
+qboolean LoadImageThruSTB (char *origname, char* type, byte **pic, int *width, int *height);
 
 // up / down
 #define	PITCH	0
@@ -261,11 +260,11 @@ extern	cvar_t	*r_postprocessing;
 extern	cvar_t	*r_lightlevel;	// FIXME: This is a HACK to get the client's light level
 
 extern	cvar_t	*gl_mode;
-extern	cvar_t	*gl_lightmap;
+extern	cvar_t	*gl_showlightmap;
+extern	cvar_t	*gl_shownormals;
 extern	cvar_t	*gl_shadows;
 extern	cvar_t	*gl_dynamic;
 extern  cvar_t  *gl_monolightmap;
-extern	cvar_t	*gl_showtris;
 extern	cvar_t	*gl_finish;
 extern	cvar_t	*gl_clear;
 extern	cvar_t	*gl_cull;
@@ -301,7 +300,9 @@ void RImage_CreateSamplers (void);
 void GL_BindTexture (GLenum tmu, GLenum target, GLuint sampler, GLuint texnum);
 
 void R_LightPoint (vec3_t p, vec3_t color, float *lightspot);
-void R_PushDlights (mnode_t *headnode, glmatrix *transform);
+
+void R_MarkLights (mnode_t *headnode, glmatrix *transform);
+void R_EnableLights (int framecount, int bitmask);
 
 //====================================================================
 
@@ -333,15 +334,16 @@ void R_DrawSkyChain (msurface_t *surf);
 void R_DrawSurfaceChain (msurface_t *chain, int numindexes);
 
 void RE_GL_Draw_GetPicSize (int *w, int *h, char *name);
-void RE_GL_Draw_Pic (int x, int y, char *name);
-void RE_GL_Draw_PicScaled (int x, int y, char *name, float scale);
+void RE_GL_Draw_Pic (int x, int y, char *name, float scale);
 void RE_GL_Draw_StretchPic (int x, int y, int w, int h, char *name);
-void RE_GL_Draw_Char (int x, int y, int c);
-void RE_GL_Draw_CharScaled (int x, int y, int num, float scale);
+void RE_GL_Draw_StretchPicExt (float x, float y, float w, float h, float sl, float tl, float sh, float th, char *pic);
+void RE_GL_Draw_SetColor (float *rgba);
+void RE_GL_Draw_Char (int x, int y, int num, float scale);
 void RE_GL_Draw_TileClear (int x, int y, int w, int h, char *name);
 void RE_GL_Draw_Fill (int x, int y, int w, int h, int c);
 void RE_GL_Draw_FadeScreen (void);
 void RE_GL_Draw_StretchRaw (int x, int y, int w, int h, int cols, int rows, byte *data);
+
 void Draw_Begin2D (void);
 void Draw_End2D (void);
 
@@ -370,6 +372,11 @@ void GL_ShutdownImages (void);
 
 void GL_FreeUnusedImages (void);
 
+void R_InitFreeType (void);
+void R_DoneFreeType (void);
+void RE_GL_RegisterFont (char *fontName, int pointSize, fontInfo_t * font);
+
+int RE_GL_MarkFragments (vec3_t origin, vec3_t axis[3], float radius, int maxPoints, vec3_t *points, int maxFragments, markFragment_t *fragments);
 
 typedef struct
 {
@@ -436,6 +443,8 @@ void GL_Enable (int bits);
 void GL_BlendFunc (GLenum sfactor, GLenum dfactor);
 void GL_BindVertexArray (GLuint vertexarray);
 
+void GL_CheckError (char *str);
+
 typedef struct cubeface_s
 {
 	int width;
@@ -445,7 +454,6 @@ typedef struct cubeface_s
 
 GLuint GL_UploadTexture (byte *data, int width, int height, qboolean mipmap, int bits);
 GLuint GL_LoadCubeMap (cubeface_t *faces);
-void GL_Image8To32 (byte *data8, unsigned *data32, int size, unsigned *palette);
 
 void *Img_Alloc (int size);
 void Img_Free (void);

@@ -35,8 +35,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 #include "sound.h"
 #include "input.h"
 #include "keys.h"
-#include "console.h"
-#include "cl_bgmusic.h"
 
 // for curl downloading
 #include <curl/curl.h>
@@ -87,35 +85,32 @@ extern int num_cl_weaponmodels;
 
 #define	CMD_BACKUP		64	// allow a lot of command backups for very fast systems
 
+typedef enum
+{
+	// generic types
+	DL_OTHER,
+	DL_MAP,
+	DL_MODEL,
+	DL_LIST,
+	DL_PAK
+} dltype_t;
+
 // download queue state
 typedef enum
 {
-	DLQ_STATE_NOT_STARTED,
-	DLQ_STATE_RUNNING,
-	DLQ_STATE_DONE
-} dlq_state;
+	DL_PENDING,
+	DL_RUNNING,
+	DL_DONE
+} dlstate_t;
 
 // download queue
 typedef struct dlqueue_s
 {
 	struct dlqueue_s	*next;
-	char				quakePath[MAX_QPATH];
-	dlq_state			state;
+	dltype_t			type;
+	dlstate_t			state;
+	char				path[MAX_QPATH];
 } dlqueue_t;
-
-// download handle
-typedef struct dlhandle_s
-{
-	CURL		*curl;
-	char		filePath[MAX_OSPATH];
-	FILE		*file;
-	dlqueue_t	*queueEntry;
-	size_t		fileSize;
-	size_t		position;
-	double		speed;
-	char		URL[576];
-	char		*tempBuffer;
-} dlhandle_t;
 
 // cinematics
 typedef struct
@@ -138,7 +133,7 @@ typedef struct
 	int			width_2;			// width / 2
 	int			height;
 
-	FILE		*file;
+	fileHandle_t file;
 	int			remaining;
 
 	unsigned int time;				// Sys_Milliseconds for first cinematic frame
@@ -282,12 +277,16 @@ typedef struct
 	netadr_t	last_rcon_to;		// last destination client sent an rcon to
 
 	// file transfer from server
-	FILE		*download;			
-	char		downloadtempname[MAX_OSPATH];
-	char		downloadname[MAX_OSPATH];
-	int			downloadpercent;
-	size_t		downloadposition;
-	qboolean	failed_download;
+	struct {
+		dlqueue_t   *current; // current path being downloaded
+		dlqueue_t	queue; // path being downloaded
+		int         pending; // number of non-finished entries in queue
+		char		tempname[MAX_OSPATH + 4]; // account 4 bytes for .tmp suffix
+		char		name[MAX_OSPATH];
+		FILE		*file; // UDP file transfer from server
+		int			percent; // how much downloaded
+		size_t		position; // how much downloaded (in bytes)
+	} download;
 
 	// for gamespy
 	int			gamespypercent;
@@ -300,11 +299,9 @@ typedef struct
 	qboolean	demowaiting;	// don't record until a non-delta message is received
 	FILE		*demofile;
 
-	// for curl downloading
-	dlqueue_t	downloadQueue;	// queue of paths we need
-	dlhandle_t	HTTPHandles[4];	// actual download handles
-	char		downloadServer[512]; // base url prefix to download from
-	char		downloadReferer[32]; // libcurl requires a static string for referers...
+	// true type fonts
+	fontInfo_t	consoleFont;
+	fontInfo_t	consoleBoldFont;
 } client_static_t;
 
 extern client_static_t	cls;
@@ -317,11 +314,11 @@ extern client_static_t	cls;
 extern	cvar_t	*cl_stereo_separation;
 extern	cvar_t	*cl_stereo;
 
+extern	cvar_t	*cl_drawParticles;
+extern	cvar_t	*cl_particleCollision;
+
 extern	cvar_t	*cl_gun;
-extern	cvar_t	*cl_add_blend;
-extern	cvar_t	*cl_add_lights;
-extern	cvar_t	*cl_add_particles;
-extern	cvar_t	*cl_add_entities;
+extern	cvar_t	*cl_gunAlpha;
 extern	cvar_t	*cl_predict;
 extern	cvar_t	*cl_footsteps;
 extern	cvar_t	*cl_noskins;
@@ -358,16 +355,15 @@ extern	cvar_t	*cl_lightlevel;	// FIXME HACK
 extern	cvar_t	*cl_paused;
 extern	cvar_t	*cl_timedemo;
 
-extern	cvar_t	*cl_vwep;
+extern	cvar_t	*cl_aviFrameRate;
 
-extern  cvar_t	*cl_hudscale;
-extern  cvar_t	*cl_consolescale;
-extern  cvar_t	*cl_menuscale;
+extern	cvar_t	*cl_vwep;
 
 extern	cvar_t	*cl_http_downloads;
 extern	cvar_t	*cl_http_filelists;
 extern	cvar_t	*cl_http_proxy;
 extern	cvar_t	*cl_http_max_connections;
+extern	cvar_t	*cl_http_default_url;
 
 typedef struct
 {
@@ -381,7 +377,7 @@ typedef struct
 } cdlight_t;
 
 extern	centity_t	cl_entities[MAX_EDICTS];
-extern	cdlight_t	cl_dlights[MAX_DLIGHTS];
+extern	cdlight_t	cl_dlights[MAX_LIGHTS];
 
 // the cl_parse_entities must be large enough to hold UPDATE_BACKUP frames of
 // entities, so that when a delta compressed message arives from the server
@@ -394,11 +390,6 @@ extern	entity_state_t	cl_parse_entities[MAX_PARSE_ENTITIES];
 extern	netadr_t	net_from;
 extern	sizebuf_t	net_message;
 
-void DrawStringScaled (int x, int y, char *s, float factor);
-void DrawAltStringScaled (int x, int y, char *s, float factor); // toggle high bit
-
-qboolean CL_CheckOrDownloadFile (char *filename);
-
 void CL_AddNetgraph (void);
 
 //=============================================================================
@@ -410,12 +401,15 @@ typedef struct particle_s
 	float		time;
 
 	vec3_t		org;
+	vec3_t		oldOrg;
 	vec3_t		vel;
 	vec3_t		accel;
 	float		color;
 	float		colorvel;
 	float		alpha;
 	float		alphavel;
+	float		bounceFactor;
+	qboolean	ignoreGrav;
 } cparticle_t;
 
 #define	PARTICLE_GRAVITY	40
@@ -471,7 +465,8 @@ void CL_Disconnect (void);
 void CL_Disconnect_f (void);
 void CL_PingServers_f (void);
 void CL_Snd_Restart_f (void);
-void CL_RequestNextDownload (void);
+void CL_WriteConfiguration (void);
+void CL_Begin (void);
 
 //
 // cl_input
@@ -506,6 +501,23 @@ float CL_KeyState (kbutton_t *key);
 char *Key_KeynumToString (int keynum);
 
 //
+// cl_console.c
+//
+void Con_CheckResize (void);
+void Con_Init (void);
+void Con_RunConsole (void);
+void Con_DrawConsole (float frac);
+void Con_Print (char *txt);
+void Con_Clear_f (void);
+void Con_DrawNotify (void);
+void Con_ClearNotify (void);
+void Con_ToggleConsole_f (void);
+void Con_PageUp (void);
+void Con_PageDown (void);
+void Con_Top (void);
+void Con_Bottom (void);
+
+//
 // cl_demo.c
 //
 void CL_WriteDemoMessage (void);
@@ -518,10 +530,10 @@ void CL_Record_f (void);
 extern	char *svc_strings[256];
 
 void CL_ParseServerMessage (void);
+void CL_ParsePlayerSkin (char *name, char *model, char *skin, char *s);
 void CL_LoadClientinfo (clientinfo_t *ci, char *s);
 void SHOWNET (char *s);
 void CL_ParseClientinfo (int player);
-void CL_Download_f (void);
 
 //
 // cl_view.c
@@ -603,9 +615,7 @@ void M_Draw (void);
 
 char *Default_MenuKey (struct _tag_menuframework *m, int key);
 
-void M_DrawCharacter (int cx, int cy, int num);
 void M_Print (int x, int y, char *str);
-void M_DrawPic (int x, int y, char *pic);
 void M_DrawTextBox (int x, int y, int width, int lines);
 void M_Banner (char *name);
 void M_Popup (void);
@@ -618,6 +628,28 @@ void M_PushMenu (struct _tag_menuframework *menu);
 
 void M_AddToServerList (netadr_t adr, char *info);
 
+void M_Menu_Main_f(void);
+	void M_Menu_Game_f(void);
+		void M_Menu_LoadGame_f(void);
+		void M_Menu_SaveGame_f(void);
+		void M_Menu_Credits_f(void);
+	void M_Menu_Multiplayer_f(void);
+		void M_Menu_JoinGamespyServer_f(void);
+		void M_Menu_JoinServer_f(void);
+			void M_Menu_AddressBook_f(void);
+		void M_Menu_StartServer_f(void);
+			void M_Menu_DMOptions_f(void);
+		void M_Menu_PlayerConfig_f(void);
+		void M_Menu_DownloadOptions_f(void);
+	void M_Menu_Options_f(void);
+		void M_Menu_Options_Sound_f(void);
+		void M_Menu_Options_Controls_f(void);
+			void M_Menu_Keys_f(void);
+		void M_Menu_Options_Screen_f(void);
+		void M_Menu_Options_Effects_f(void);
+	void M_Menu_Video_f(void);
+	void M_Menu_Quit_f(void);
+
 //
 // cl_inv.c
 //
@@ -625,12 +657,34 @@ void CL_ParseInventory (void);
 void CL_DrawInventory (void);
 
 //
+// cl_download.c
+//
+qboolean CL_QueueDownload (char *quakePath, dltype_t type);
+void CL_FinishDownload (dlqueue_t *q);
+void CL_CleanupDownloads (void);
+void CL_HandleDownload (byte *data, int size, int percent);
+qboolean CL_CheckDownloadExtension (char *ext);
+void CL_StartNextDownload (void);
+void CL_RequestNextDownload (void);
+void CL_ResetPrecacheCheck (void);
+void CL_Download_f (void);
+
+//
 // cl_http.c
 //
-void CL_CancelHTTPDownloads (qboolean permKill);
+void CL_CleanupHTTPDownloads (void);
 void CL_InitHTTPDownloads (void);
-qboolean CL_QueueHTTPDownload (char *quakePath);
+void CL_ShutdownHTTPDownloads (void);
+qboolean CL_QueueHTTPDownload (char *quakePath, dltype_t type);
 void CL_RunHTTPDownloads (void);
-qboolean CL_PendingHTTPDownloads (void);
 void CL_SetHTTPServer (const char *URL);
-void CL_HTTP_Cleanup (qboolean fullShutdown);
+
+//
+// cl_avi.c
+//
+qboolean CL_OpenAVIForWriting (const char *filename);
+void CL_TakeVideoFrame (void);
+void CL_WriteAVIVideoFrame (const byte *imageBuffer, int size);
+void CL_WriteAVIAudioFrame (const byte *pcmBuffer, int size);
+qboolean CL_CloseAVI (void);
+qboolean CL_VideoRecording (void);
